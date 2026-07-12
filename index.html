@@ -377,6 +377,12 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
 
   <!-- ===================== DATA ===================== -->
   <section class="panel" id="p-data">
+    <h2>Where your data lives</h2>
+    <p class="hint">Everything you log is written to this phone the instant you tap
+      it. Closing the app, force-stopping it, or restarting the phone loses
+      nothing.</p>
+    <div class="card" id="storage"></div>
+
     <h2>Sync to your Google Sheet</h2>
     <p class="hint">Keeps your phone and computer in step, and survives clearing
       your browser. These two values are stored on this device only — never in the
@@ -453,8 +459,10 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
 "use strict";
 
 /* ---------------------------------------------------------------- storage */
-/* Private-mode browsers and sandboxed frames throw on localStorage. Fall back
-   to memory so the app still works for the session, and say so plainly. */
+/* Writes go to disk synchronously, on every change — so a force-stop, a reboot or
+   a flat battery loses nothing that was already tapped in.
+   Private-mode browsers and sandboxed frames throw on localStorage. Fall back to
+   memory so the app still works for the session, and say so plainly. */
 const store = (() => {
   let ok = true;
   try { localStorage.setItem("__t", "1"); localStorage.removeItem("__t"); }
@@ -474,6 +482,34 @@ const store = (() => {
     },
   };
 })();
+
+/* By default the browser treats site storage as "best-effort": if the phone runs
+   critically low on space, Android is allowed to evict it WITHOUT asking. For a
+   year of expense logs that is not acceptable, so ask for durable storage. Once
+   granted, the data is only removed if you delete it yourself. */
+async function requestDurableStorage() {
+  if (!navigator.storage || !navigator.storage.persist) return null;
+  try {
+    if (await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch {
+    return null;
+  }
+}
+
+async function storageReport() {
+  const out = { durable: null, used: null, quota: null };
+  if (navigator.storage) {
+    try {
+      if (navigator.storage.persisted) out.durable = await navigator.storage.persisted();
+      if (navigator.storage.estimate) {
+        const e = await navigator.storage.estimate();
+        out.used = e.usage; out.quota = e.quota;
+      }
+    } catch { /* not supported — the panel says so */ }
+  }
+  return out;
+}
 
 /* NOTE: this page is served publicly, so nothing personal is baked into it —
    no favourites, no bills, no salary. You build your own favourites as you log:
@@ -1360,6 +1396,77 @@ function renderBills() {
 }
 
 /* ------------------------------------------------------------------ DATA  */
+async function renderStorage() {
+  const box = $("#storage");
+  if (!box) return;
+  const r = await storageReport();
+  const counts = [
+    [live(S.tx).length, "expense"],
+    [live(S.bills).length, "bill"],
+    [live(S.pays).length, "payment"],
+    [live(S.wishes).length, "wish"],
+  ].filter(([n]) => n > 0)
+   .map(([n, w]) => `${n} ${w}${n === 1 ? "" : "s"}`)
+   .join(" · ") || "nothing logged yet";
+
+  box.innerHTML = "";
+
+  const line = (label, value, tone, note) => {
+    const row = el("div", "bill");
+    const nm = el("div", "nm");
+    nm.textContent = label;
+    if (note) {
+      const r2 = el("div", "range");
+      r2.textContent = note;
+      nm.append(r2);
+    }
+    const v = el("span", "cad");
+    v.textContent = value;
+    if (tone) v.style.color = `var(--${tone})`;
+    row.append(nm, v);
+    box.append(row);
+  };
+
+  line("On this phone", counts, null,
+       "Saved the moment you tap. Survives force-stop and reboot.");
+
+  if (r.durable === true) {
+    line("Protected from cleanup", "yes", "good",
+         "Android will not evict this to reclaim space.");
+  } else if (r.durable === false) {
+    line("Protected from cleanup", "not yet", "warn",
+         "If the phone runs critically low on space, Android may delete it.");
+    const btn = el("button", "btn");
+    btn.style.width = "100%";
+    btn.style.marginTop = "10px";
+    btn.textContent = "Protect my data";
+    btn.onclick = async () => {
+      const granted = await requestDurableStorage();
+      toast(granted ? "Protected"
+                    : "Chrome declined — keep syncing and backing up");
+      renderStorage();
+    };
+    box.append(btn);
+  } else {
+    line("Protected from cleanup", "unknown", null,
+         "This browser doesn't report storage protection.");
+  }
+
+  if (r.used != null) {
+    const kb = r.used / 1024;
+    line("Space used", kb < 1024 ? `${kb.toFixed(0)} KB`
+                                 : `${(kb / 1024).toFixed(1)} MB`, null,
+         r.quota ? `of ${(r.quota / 1024 / 1024 / 1024).toFixed(1)} GB available`
+                 : "");
+  }
+
+  const synced = S.sync.url && S.sync.last;
+  line("Copy in your Google Sheet", synced ? "yes" : "no",
+       synced ? "good" : "warn",
+       synced ? `Last synced ${new Date(S.sync.last).toLocaleString()}`
+              : "Set up sync below — then a lost phone costs you nothing.");
+}
+
 function csvEscape(v) {
   const s = String(v);
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -1556,6 +1663,7 @@ function go(k) {
   if (k === "days") renderCal();
   if (k === "wish") renderWish();
   if (k === "bills") renderBills();
+  if (k === "data") renderStorage();
   window.scrollTo({ top: 0 });
 }
 
@@ -1752,6 +1860,10 @@ if (S.sync.url) setSyncStatus(S.sync.last
 
 renderTabs("log");
 render();
+
+/* Ask for durable storage up front. Chrome grants it silently to an installed PWA
+   you actually use, so this usually costs the user no prompt at all. */
+requestDurableStorage();
 
 /* Catch up on open, and whenever you come back to the app. */
 if (S.sync.url) syncNow(true);
