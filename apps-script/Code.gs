@@ -28,7 +28,11 @@ const SECRET = "CHANGE-ME-to-a-long-random-string";
 const SHEETS = {
   expenses: ["id", "date", "meal", "item", "amount", "category", "context",
              "wishlist", "updated", "deleted", "seq"],
-  bills:    ["id", "name", "amount", "cadence", "active", "updated", "deleted", "seq"],
+  bills:    ["id", "name", "amount", "cadence", "varies", "active",
+             "updated", "deleted", "seq"],
+  // What was actually paid, one row per bill per month — because electric and phone
+  // are not the same number every month, and the range is what you budget against.
+  payments: ["id", "billId", "period", "amount", "updated", "deleted", "seq"],
   wishes:   ["id", "name", "price", "updated", "deleted", "seq"],
 };
 

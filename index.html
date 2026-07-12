@@ -237,6 +237,8 @@ input[type=number]{font-family:var(--mono);}
 .tot-row{display:flex; justify-content:space-between; align-items:baseline;
   padding-top:14px; margin-top:6px; border-top:2px solid var(--ink); font-weight:700;}
 .tot-row .amt{font-family:var(--mono); font-size:1.2rem;}
+.range{font-size:.7rem; color:var(--ink-3); font-weight:500; margin-top:2px;
+  font-variant-numeric:tabular-nums;}
 
 /* ---------- tabs ---------- */
 nav{
@@ -359,10 +361,15 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
 
   <!-- ===================== BILLS ===================== -->
   <section class="panel" id="p-bills">
+    <h2>This month</h2>
+    <p class="hint">Rent doesn't move. Electric and phone do — a hot month, an
+      international call. Tap a bill to record what you <em>actually</em> paid, so
+      the history knows the real range instead of one guessed number.</p>
+    <div id="thisMonth"></div>
+
     <h2>Recurring</h2>
-    <p class="hint">Declared once — never logged daily. A bill is paid per month, not
-      on a date, and treating it like a purchase is what made DataCamp look like a
-      ฿1,274/month habit.</p>
+    <p class="hint">Declared once — never logged as daily expenses. A bill is paid per
+      month, not on a date.</p>
     <div class="card" id="bills"></div>
     <button class="btn ghost" id="addBill"
             style="width:100%; border-style:dashed;">+ Add a bill</button>
@@ -467,8 +474,20 @@ const store = (() => {
    no favourites, no bills, no salary. You build your own favourites as you log:
    tick "Save to favourites" on anything you buy again. Rent and pay are entered
    on the device and live only in this browser's storage. */
+/* A bill is a TEMPLATE, not a number.
+ *
+ * Rent and Netflix are the same every month. Electric and telecom are not: there's a
+ * base, plus whatever you actually used (a hot month, an international call). Storing
+ * one figure and editing it each month would work but would erase the history — and
+ * the history is the whole point. Knowing your electric runs 700-1,400 is what lets
+ * you budget for it; knowing only "940" does not.
+ *
+ * So: `bills` holds the template (typical amount, whether it varies), and `pays` is a
+ * ledger of what you ACTUALLY paid, one row per bill per month. The month's total
+ * uses the actual where you've recorded one and the estimate where you haven't, and
+ * always says which. */
 const DEFAULT = {
-  tx: [], bills: [], wishes: [], quick: [],
+  tx: [], bills: [], pays: [], wishes: [], quick: [],
   settings: { pot:0, rate:0, take:0, save:0 },
   ui: { ctx:"solo" },
   /* Sync config is entered on this device and stored here — never in the repo,
@@ -500,7 +519,8 @@ const live = (arr) => arr.filter((r) => !r.d);
 
 /* Records from an older backup (or from my-data.json) have no sync fields yet. */
 function normalize(allDirty) {
-  ["tx", "bills", "wishes"].forEach((k) => {
+  ["tx", "bills", "pays", "wishes"].forEach((k) => {
+    if (!S[k]) S[k] = [];
     (S[k] || []).forEach((r) => {
       if (r.u === undefined) { r.u = r.ts || 1; r.dirty = 1; }
       if (r.d === undefined) r.d = false;
@@ -1050,21 +1070,228 @@ function renderWish() {
 }
 
 /* ----------------------------------------------------------------- BILLS  */
+const PERIOD = (d) => (d || new Date()).toISOString().slice(0, 7);   // "2026-07"
+const periodName = (p) =>
+  new Date(p + "-01T00:00").toLocaleDateString(undefined,
+    { month: "long", year: "numeric" });
+
+/* What you actually paid for this bill in this month, or undefined. */
+const actualFor = (billId, period) =>
+  live(S.pays).find((p) => String(p.billId) === String(billId) && p.period === period);
+
+/* Every recorded actual for a bill, oldest first. */
+const historyFor = (billId) =>
+  live(S.pays)
+    .filter((p) => String(p.billId) === String(billId))
+    .sort((a, b) => a.period.localeCompare(b.period));
+
+/* A monthly bill accrues monthly; an annual one is amortised. */
+const perMonth = (b, amount) =>
+  (amount === undefined ? b.amount : amount) / (b.cadence === "annual" ? 12 : 1);
+
+function recordActual(b, period) {
+  const existing = actualFor(b.id, period);
+  const hist = historyFor(b.id);
+  const suggested = existing ? existing.amount
+                  : hist.length ? hist[hist.length - 1].amount
+                  : b.amount;
+
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = b.name; f.append(h);
+
+  const sub = el("p", "hint");
+  sub.style.margin = "-8px 0 12px";
+  sub.textContent = `What you actually paid in ${periodName(period)}.`;
+  f.append(sub);
+
+  const w = el("div", "field");
+  const l = el("label"); l.textContent = "Amount paid (฿)";
+  const i = el("input");
+  i.type = "number"; i.inputMode = "numeric"; i.value = suggested;
+  w.append(l, i); f.append(w);
+
+  if (hist.length) {
+    const amounts = hist.map((p) => p.amount);
+    const lo = Math.min(...amounts), hi = Math.max(...amounts);
+    const avg = amounts.reduce((a, x) => a + x, 0) / amounts.length;
+    const p = el("p", "hint");
+    p.style.margin = "-4px 0 12px";
+    p.innerHTML = `Past ${hist.length}: <b>${baht(lo)}–${baht(hi)}</b>, ` +
+                  `averaging <b>${baht(avg)}</b>.`;
+    f.append(p);
+  }
+
+  const row = el("div", "inline");
+  if (existing) {
+    const clr = el("button", "btn danger");
+    clr.type = "button"; clr.textContent = "Clear";
+    clr.onclick = () => {
+      existing.d = true; touch(existing);
+      save(); dlg.close(); renderBills(); queueSync(); toast("Cleared");
+    };
+    row.append(clr);
+  } else {
+    const cancel = el("button", "btn ghost");
+    cancel.type = "button"; cancel.textContent = "Cancel";
+    cancel.onclick = () => dlg.close();
+    row.append(cancel);
+  }
+  const ok = el("button", "btn primary");
+  ok.type = "submit"; ok.textContent = "Save";
+  row.append(ok); f.append(row);
+
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const amt = Number(i.value);
+    if (!(amt >= 0)) return;
+    if (existing) { existing.amount = amt; existing.d = false; touch(existing); }
+    else S.pays.push(touch({ id: uid(), billId: b.id, period, amount: amt, d: false }));
+    save(); dlg.close(); renderBills(); queueSync(); toast("Recorded");
+  };
+  dlg.showModal();
+  setTimeout(() => { i.focus(); i.select(); }, 50);
+}
+
+function editBill(b) {
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = "Edit bill"; f.append(h);
+
+  const mk = (label, value, type) => {
+    const w = el("div", "field");
+    const l = el("label"); l.textContent = label;
+    const i = el("input");
+    i.type = type || "text";
+    if (type === "number") i.inputMode = "numeric";
+    i.value = value;
+    w.append(l, i); f.append(w);
+    return i;
+  };
+  const name = mk("Name", b.name);
+  const amount = mk(b.varies ? "Typical amount (฿)" : "Amount (฿)", b.amount, "number");
+
+  const cw = el("div", "field");
+  const cl = el("label"); cl.textContent = "How often";
+  const cbar = el("div", "bar"); cbar.style.margin = "0";
+  let cad = b.cadence;
+  [["monthly","Monthly"],["annual","Yearly"]].forEach(([k, lbl]) => {
+    const c = el("button", "chip");
+    c.type = "button"; c.textContent = lbl;
+    c.setAttribute("aria-pressed", k === cad);
+    c.onclick = () => {
+      cad = k;
+      cbar.querySelectorAll(".chip").forEach((x) =>
+        x.setAttribute("aria-pressed", x === c));
+    };
+    cbar.append(c);
+  });
+  cw.append(cl, cbar); f.append(cw);
+
+  const vw = el("label", "check");
+  const vbox = el("input");
+  vbox.type = "checkbox"; vbox.checked = !!b.varies;
+  const vtxt = el("span");
+  vtxt.innerHTML = "<b>The amount varies</b><br><span class='hint' style='margin:0'>" +
+    "Electric, phone — anything with a base plus usage. You'll be asked what you " +
+    "actually paid each month.</span>";
+  vw.append(vbox, vtxt); f.append(vw);
+
+  const row = el("div", "inline");
+  const del = el("button", "btn danger");
+  del.type = "button"; del.textContent = "Delete";
+  del.onclick = () => {
+    b.d = true; touch(b);
+    save(); dlg.close(); renderBills(); queueSync(); toast("Removed");
+  };
+  const ok = el("button", "btn primary");
+  ok.type = "submit"; ok.textContent = "Save";
+  row.append(del, ok); f.append(row);
+
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const n = name.value.trim();
+    if (!n) return;
+    b.name = n;
+    b.amount = Number(amount.value) || b.amount;
+    b.cadence = cad;
+    b.varies = vbox.checked;
+    touch(b); save(); dlg.close(); renderBills(); queueSync();
+  };
+  dlg.showModal();
+}
+
 function renderBills() {
   const box = $("#bills"); box.innerHTML = "";
-  let total = 0;
+  const bills = live(S.bills);
 
-  if (!live(S.bills).length) {
+  if (!bills.length) {
     const e = el("div", "empty");
     e.innerHTML = "No bills yet.<br>Add your rent, phone and subscriptions — or " +
                   "restore your backup on the Data tab.";
     box.append(e);
+    $("#thisMonth").innerHTML = "";
     return;
   }
 
-  live(S.bills).forEach((b) => {
-    const perMonth = b.cadence === "annual" ? b.amount / 12 : b.amount;
-    if (b.on) total += perMonth;
+  /* ---- this month: actuals where recorded, estimates where not ---- */
+  const period = PERIOD();
+  const tm = $("#thisMonth"); tm.innerHTML = "";
+  const card = el("div", "card");
+  const h = el("h2");
+  h.style.margin = "0 0 2px"; h.style.fontSize = "1rem";
+  h.textContent = periodName(period);
+  const hint = el("p", "hint");
+  hint.style.margin = "0 0 8px";
+  card.append(h, hint);
+
+  let known = 0, estimated = 0, pending = 0;
+
+  bills.filter((b) => b.on).forEach((b) => {
+    const act = actualFor(b.id, period);
+    const amount = act ? act.amount : b.amount;
+    const m = perMonth(b, amount);
+    if (act) known += m; else { estimated += m; if (b.varies) pending++; }
+
+    const row = el("div", "bill");
+    const nm = el("div", "nm"); nm.textContent = b.name;
+
+    const tag = el("span", "cad");
+    if (act) { tag.textContent = "paid"; tag.style.color = "var(--good)"; }
+    else if (b.varies) { tag.textContent = "estimate"; tag.style.color = "var(--warn)"; }
+    else tag.textContent = b.cadence === "annual" ? "yearly" : "fixed";
+
+    const amt = el("span", "amt num");
+    amt.textContent = baht(amount);
+    if (!act && b.varies) amt.style.color = "var(--ink-3)";
+
+    row.append(nm, tag, amt);
+    /* Only variable bills need a monthly actual. A fixed bill is already correct —
+       but you can still record one if the landlord surprises you. */
+    row.onclick = () => recordActual(b, period);
+    card.append(row);
+  });
+
+  hint.textContent = pending
+    ? `${pending} bill${pending === 1 ? "" : "s"} still estimated — tap to enter what you paid.`
+    : "All bills recorded for this month.";
+
+  const tr = el("div", "tot-row");
+  const l = el("span");
+  l.textContent = pending ? "Total (part estimate)" : "Total";
+  const a = el("span", "amt num"); a.textContent = baht(known + estimated);
+  tr.append(l, a); card.append(tr);
+  tm.append(card);
+
+  /* ---- the templates ---- */
+  let budget = 0;
+  bills.forEach((b) => {
+    const hist = historyFor(b.id);
+    const amounts = hist.map((p) => p.amount);
+    /* Budget off the worst month you've actually seen, not the typical one —
+       budgeting for the average guarantees you're short half the time. */
+    const planning = amounts.length ? Math.max(...amounts) : b.amount;
+    if (b.on) budget += perMonth(b, planning);
 
     const row = el("div", "bill" + (b.on ? "" : " off"));
     const sw = el("button", "sw");
@@ -1076,33 +1303,33 @@ function renderBills() {
       b.on = !b.on; touch(b); save(); renderBills(); queueSync();
     };
 
-    const nm = el("div", "nm"); nm.textContent = b.name;
+    const nm = el("div", "nm");
+    nm.textContent = b.name;
+    if (amounts.length > 1) {
+      const lo = Math.min(...amounts), hi = Math.max(...amounts);
+      const r = el("div", "range");
+      r.textContent = lo === hi
+        ? `${hist.length} months, always ${baht(lo)}`
+        : `${hist.length} months: ${baht(lo)} – ${baht(hi)}`;
+      nm.append(r);
+    }
+
     const cad = el("span", "cad");
-    cad.textContent = b.cadence === "annual" ? "yearly" : "monthly";
+    cad.textContent = b.varies ? "varies"
+                    : b.cadence === "annual" ? "yearly" : "monthly";
     const amt = el("span", "amt num"); amt.textContent = baht(b.amount);
 
     row.append(sw, nm, cad, amt);
-    row.onclick = () => {
-      ask(b.name, [
-        { k:"name",   label:"Name",              value:b.name },
-        { k:"amount", label:"Amount (฿)",        type:"number", value:b.amount },
-        { k:"cad",    label:"monthly or annual", value:b.cadence },
-      ], (o) => {
-        if (!o.name) { b.d = true; toast("Removed"); }
-        else {
-          b.name = o.name; b.amount = o.amount;
-          b.cadence = o.cad === "annual" ? "annual" : "monthly";
-        }
-        touch(b); save(); renderBills(); queueSync();
-      });
-    };
+    row.onclick = () => editBill(b);
     box.append(row);
   });
 
-  const tr = el("div", "tot-row");
-  const l = el("span"); l.textContent = "Fixed / month";
-  const a = el("span", "amt num"); a.textContent = baht(total);
-  tr.append(l, a); box.append(tr);
+  const tr2 = el("div", "tot-row");
+  const l2 = el("span");
+  l2.innerHTML = "Budget / month<div class='range'>Uses the highest month you've " +
+                 "actually paid</div>";
+  const a2 = el("span", "amt num"); a2.textContent = baht(budget);
+  tr2.append(l2, a2); box.append(tr2);
 }
 
 /* ------------------------------------------------------------------ DATA  */
@@ -1123,9 +1350,19 @@ function exportCsv() {
 }
 
 function exportBills() {
-  const rows = [["name","amount","cadence","active"]];
-  live(S.bills).forEach((b) =>
-    rows.push([b.name, b.amount, b.cadence, b.on ? "yes" : "no"]));
+  /* One row per bill per month actually paid, plus a row carrying the template for
+     bills with no actuals yet — so the analysis sees real amounts, not estimates. */
+  const rows = [["name","period","amount","cadence","varies","active","source"]];
+  live(S.bills).forEach((b) => {
+    const hist = historyFor(b.id);
+    if (hist.length) {
+      hist.forEach((p) => rows.push([b.name, p.period, p.amount, b.cadence,
+        b.varies ? "yes" : "no", b.on ? "yes" : "no", "actual"]));
+    } else {
+      rows.push([b.name, "", b.amount, b.cadence,
+        b.varies ? "yes" : "no", b.on ? "yes" : "no", "estimate"]);
+    }
+  });
   download("recurring.csv",
     "﻿" + rows.map((r) => r.map(csvEscape).join(",")).join("\n"),
     "text/csv;charset=utf-8");
@@ -1155,10 +1392,21 @@ const KINDS = {
 
   bills: { arr: () => S.bills, map: (b) => ({
       id:b.id, name:b.name, amount:b.amount, cadence:b.cadence,
-      active:b.on ? "yes" : "", updated:b.u || 0, deleted:b.d ? "yes" : "" }),
+      varies:b.varies ? "yes" : "", active:b.on ? "yes" : "",
+      updated:b.u || 0, deleted:b.d ? "yes" : "" }),
     back: (r) => ({
       id:r.id, name:r.name, amount:Number(r.amount), cadence:r.cadence,
-      on:r.active === "yes", u:Number(r.updated) || 0, d:r.deleted === "yes" }) },
+      varies:r.varies === "yes", on:r.active === "yes",
+      u:Number(r.updated) || 0, d:r.deleted === "yes" }) },
+
+  /* What was actually paid, one row per bill per month. */
+  payments: { arr: () => S.pays, map: (p) => ({
+      id:p.id, billId:p.billId, period:p.period, amount:p.amount,
+      updated:p.u || 0, deleted:p.d ? "yes" : "" }),
+    back: (r) => ({
+      id:r.id, billId:r.billId, period:String(r.period).slice(0, 7),
+      amount:Number(r.amount), u:Number(r.updated) || 0,
+      d:r.deleted === "yes" }) },
 
   wishes: { arr: () => S.wishes, map: (w) => ({
       id:w.id, name:w.name, price:w.price, updated:w.u || 0,
@@ -1355,17 +1603,27 @@ $("#addWish").onclick = () => ask("Add a wish", [
   save(); renderWish(); queueSync(); toast("Added");
 });
 
-$("#addBill").onclick = () => ask("Add a bill", [
-  { k:"name",   label:"Name" },
-  { k:"amount", label:"Amount (฿)", type:"number" },
-  { k:"cad",    label:"monthly or annual", value:"monthly" },
-], (o) => {
-  if (!o.name || !(o.amount > 0)) return;
-  S.bills.push(touch({ id: uid(), name:o.name, amount:o.amount,
-                 cadence: o.cad === "annual" ? "annual" : "monthly",
-                 on:true, d:false }));
-  save(); renderBills(); queueSync(); toast("Added");
-});
+$("#addBill").onclick = () => {
+  const b = { id: uid(), name:"", amount:0, cadence:"monthly",
+              varies:false, on:true, d:false };
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  editBill(b);
+  /* editBill saves in place; only keep it if it was actually filled in. */
+  const orig = f.onsubmit;
+  f.onsubmit = (e) => {
+    const name = f.querySelector("input[type=text]").value.trim();
+    const amt = Number(f.querySelector("input[type=number]").value);
+    if (!name || !(amt > 0)) { e.preventDefault(); return; }
+    if (!S.bills.includes(b)) S.bills.push(b);
+    orig(e);
+    toast("Added");
+  };
+  /* A brand-new bill has nothing to delete. */
+  const del = [...f.querySelectorAll("button")].find((x) => x.textContent === "Delete");
+  if (del) { del.textContent = "Cancel"; del.className = "btn ghost";
+             del.onclick = () => dlg.close(); }
+  f.querySelector("h3").textContent = "Add a bill";
+};
 
 $("#editPot").onclick = () => ask("Wishlist fund", [
   { k:"pot", label:"How much have you saved? (฿)", type:"number",
