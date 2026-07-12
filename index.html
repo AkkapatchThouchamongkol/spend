@@ -534,10 +534,19 @@ const DEFAULT = {
   tx: [], bills: [], pays: [], wishes: [], quick: [],
   settings: { pot:0, rate:0, take:0, save:0 },
   ui: { ctx:"solo" },
+  /* Favourites and settings aren't id-keyed records like an expense is — they're
+     single blobs. `metaU` timestamps them so they can still sync last-write-wins.
+     Without this, a lost phone would take your tiles and your wishlist fund
+     balance with it, even though everything else restored from the Sheet. */
+  metaU: { settings: 0, quick: 0 },
   /* Sync config is entered on this device and stored here — never in the repo,
-     so the public page carries no secret. */
+     so the public page carries no secret. It is deliberately NOT synced: the
+     secret should not travel through the thing it protects. */
   sync: { url:"", token:"", last:0 },
 };
+
+/* The blobs that sync as key/value rows rather than as record tables. */
+const META_KEYS = ["settings", "quick"];
 
 /* Read the stored object BEFORE merging: once DEFAULT is folded in, its own `v`
    would mask the fact that the saved data predates the schema. */
@@ -547,6 +556,7 @@ let S = Object.assign({}, DEFAULT, stored || {});
 S.settings = Object.assign({}, DEFAULT.settings, S.settings || {});
 S.ui = Object.assign({}, DEFAULT.ui, S.ui || {});
 S.sync = Object.assign({}, DEFAULT.sync, S.sync || {});
+S.metaU = Object.assign({}, DEFAULT.metaU, S.metaU || {});
 const save = () => store.set(S);
 
 /* v1 -> v2: the app used to ship a built-in list of favourites, and it wrote them
@@ -579,6 +589,9 @@ const tick = () => (lastTick = Math.max(Date.now(), lastTick + 1));
 
 const touch = (r) => { r.u = tick(); r.dirty = 1; return r; };
 const live = (arr) => arr.filter((r) => !r.d);
+
+/* Stamp a meta blob (settings / quick) so the Sheet knows this device edited it. */
+const touchMeta = (k) => { S.metaU[k] = tick(); };
 
 /* Records from an older backup (or from my-data.json) have no sync fields yet. */
 function normalize(allDirty) {
@@ -832,7 +845,8 @@ function editFav(q) {
   del.type = "button"; del.textContent = "Delete";
   del.onclick = () => {
     S.quick = S.quick.filter((x) => x !== q);
-    save(); dlg.close(); renderTags(); toast("Removed from favourites");
+    touchMeta("quick");
+    save(); dlg.close(); renderTags(); queueSync(); toast("Removed from favourites");
   };
   const ok = el("button", "btn primary");
   ok.type = "submit"; ok.textContent = "Save";
@@ -845,7 +859,8 @@ function editFav(q) {
     q.n = n;
     q.p = Number(price.value) || q.p;
     q.c = pick.get();
-    save(); dlg.close(); renderTags(); toast("Favourite updated");
+    touchMeta("quick");
+    save(); dlg.close(); renderTags(); queueSync(); toast("Favourite updated");
   };
   dlg.showModal();
   setTimeout(() => name.focus(), 50);
@@ -857,7 +872,8 @@ function saveFav(name, price, cat) {
   const found = S.quick.find((q) => q.n.toLowerCase() === name.toLowerCase());
   if (found) { found.p = price; found.c = cat; }
   else S.quick.push({ n: name, p: price, c: cat });
-  save();
+  touchMeta("quick");
+  save(); queueSync();
 }
 
 function renderReceipt() {
@@ -1589,12 +1605,19 @@ async function syncNow(quiet, full) {
     push[kind] = dirty.map(k.map);
   }
 
+  /* Meta blobs are tiny, so send them every time and let the server reject a stale
+     one on its timestamp. Simpler than tracking dirt on a whole object, and it
+     self-heals if a flag is ever missed. */
+  const meta = META_KEYS.map((key) => ({
+    key, value: JSON.stringify(S[key]), updated: S.metaU[key] || 0,
+  }));
+
   try {
     /* text/plain avoids a CORS preflight, which Apps Script cannot answer. */
     const res = await fetch(S.sync.url, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ token: S.sync.token, since, push }),
+      body: JSON.stringify({ token: S.sync.token, since, push, meta }),
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -1616,6 +1639,24 @@ async function syncNow(quiet, full) {
       // Everything we sent is now on the Sheet — unless it changed mid-flight.
       sent[kind].forEach(({ r, u }) => { if (r.u === u) delete r.dirty; });
     }
+
+    /* Meta: take the remote blob only if it is genuinely newer than ours. */
+    (data.meta || []).forEach((row) => {
+      const key = row.key;
+      if (!META_KEYS.includes(key)) return;
+      const remoteU = Number(row.updated) || 0;
+      if (remoteU <= (S.metaU[key] || 0)) return;
+      try {
+        const val = JSON.parse(row.value);
+        if (val && typeof val === "object") {
+          S[key] = key === "settings"
+            ? Object.assign({}, DEFAULT.settings, val)
+            : val;
+          S.metaU[key] = remoteU;
+          pulled++;
+        }
+      } catch { /* a corrupt blob must not take the whole sync down */ }
+    });
 
     S.sync.last = data.now;      // the server's cursor, never our own clock
     save();
@@ -1763,12 +1804,14 @@ $("#addBill").onclick = () => {
 $("#editPot").onclick = () => ask("Wishlist fund", [
   { k:"pot", label:"How much have you saved? (฿)", type:"number",
     value:S.settings.pot },
-], (o) => { S.settings.pot = Math.max(0, o.pot); save(); renderWish(); });
+], (o) => { S.settings.pot = Math.max(0, o.pot); touchMeta("settings");
+              save(); renderWish(); queueSync(); });
 
 $("#editRate").onclick = () => ask("Monthly amount", [
   { k:"rate", label:"Adding how much each month? (฿)", type:"number",
     value:S.settings.rate },
-], (o) => { S.settings.rate = Math.max(0, o.rate); save(); renderWish(); });
+], (o) => { S.settings.rate = Math.max(0, o.rate); touchMeta("settings");
+              save(); renderWish(); queueSync(); });
 
 $("#prevM").onclick = () => { calM.setMonth(calM.getMonth() - 1); renderCal(); };
 $("#nextM").onclick = () => { calM.setMonth(calM.getMonth() + 1); renderCal(); };
@@ -1797,6 +1840,7 @@ $("#impJson").onchange = (e) => {
       /* A backup without favourites (my-data.json, or one made before this
          feature) must not silently wipe the ones you've built up. */
       S.quick = (d.quick && d.quick.length) ? d.quick : keepQuick;
+      META_KEYS.forEach(touchMeta);   // a restored backup must reach the Sheet
       normalize(true);          // a restored backup must be re-uploaded to the Sheet
       save(); render(); go("log"); queueSync();
       toast(`Restored ${live(S.tx).length} entries`);
@@ -1810,14 +1854,16 @@ $("#impJson").onchange = (e) => {
 $("#saveSet").onclick = () => {
   S.settings.take = Number($("#setTake").value) || S.settings.take;
   S.settings.save = Number($("#setSave").value) || S.settings.save;
-  save(); toast("Saved");
+  touchMeta("settings");
+  save(); queueSync(); toast("Saved");
 };
 
 $("#clearFavs").onclick = () => {
   const n = S.quick.length;
   if (!n) return toast("No favourites to clear");
   S.quick = [];
-  save(); renderTags();
+  touchMeta("quick");
+  save(); renderTags(); queueSync();
   toast(`Cleared ${n} favourite${n === 1 ? "" : "s"}`);
 };
 

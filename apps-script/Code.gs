@@ -36,6 +36,11 @@ const SHEETS = {
   wishes:   ["id", "name", "price", "updated", "deleted", "seq"],
 };
 
+// Favourites and settings are single blobs, not tables of records, so they live in
+// their own key/value tab. Without this a lost phone would take your quick-add tiles
+// and your wishlist fund balance with it, even though everything else restored.
+const META = ["key", "value", "updated", "seq"];
+
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
@@ -56,16 +61,20 @@ function doPost(e) {
       for (const kind of Object.keys(SHEETS)) {
         pull[kind] = readSince(kind, since);
       }
+      var metaOut = readMeta();
       for (const kind of Object.keys(SHEETS)) {
         upsert(kind, (body.push && body.push[kind]) || [], seq);
       }
+      upsertMeta(body.meta || [], seq);
     } finally {
       lock.releaseLock();
     }
 
     // The cursor is this request's seq. Rows written above carry exactly `seq`, so
     // `seq > since` excludes them next time — no echo, no missed row.
-    return json({ ok: true, now: seq, pull: pull });
+    // Meta is always returned in full: it is two small rows, and the client keeps
+    // its own copy only when the remote one is genuinely newer.
+    return json({ ok: true, now: seq, pull: pull, meta: metaOut });
   } catch (err) {
     return json({ error: String(err) });
   }
@@ -101,10 +110,56 @@ function tab(kind) {
   let sh = ss.getSheetByName(kind);
   if (!sh) {
     sh = ss.insertSheet(kind);
-    sh.appendRow(SHEETS[kind]);
+    sh.appendRow(kind === "meta" ? META : SHEETS[kind]);
     sh.setFrozenRows(1);
   }
   return sh;
+}
+
+/** Every meta blob, keyed by name. Two rows: settings, quick. */
+function readMeta() {
+  const sh = tab("meta");
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const values = sh.getRange(2, 1, last - 1, META.length).getValues();
+  return values
+    .filter(function (v) { return v[0]; })
+    .map(function (v) {
+      return { key: v[0], value: v[1], updated: Number(v[2]) || 0 };
+    });
+}
+
+/** Upsert blobs by key. A stale blob loses, exactly as a stale record does. */
+function upsertMeta(rows, seq) {
+  if (!rows.length) return;
+  const sh = tab("meta");
+  const last = sh.getLastRow();
+
+  const index = {};
+  if (last > 1) {
+    const keys = sh.getRange(2, 1, last - 1, 1).getValues();
+    for (let i = 0; i < keys.length; i++) index[String(keys[i][0])] = i + 2;
+  }
+
+  const appends = [];
+  rows.forEach(function (r) {
+    const updated = Number(r.updated) || 0;
+    if (!r.key || !updated) return;          // never let an unstamped blob overwrite
+    const row = [r.key, r.value, updated, seq];
+    const at = index[String(r.key)];
+    if (at) {
+      const mine = Number(sh.getRange(at, 3, 1, 1).getValue()) || 0;
+      if (updated < mine) return;            // stale — drop it
+      sh.getRange(at, 1, 1, META.length).setValues([row]);
+    } else {
+      appends.push(row);
+    }
+  });
+
+  if (appends.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, appends.length, META.length)
+      .setValues(appends);
+  }
 }
 
 /**
