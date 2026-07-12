@@ -434,6 +434,11 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
 
     <h2>Danger</h2>
     <div class="card">
+      <button class="btn" id="clearFavs" style="width:100%; margin-bottom:8px;">
+        Clear all favourites
+      </button>
+      <p class="hint" style="margin:0 0 14px;">Removes every quick-add tile. Your
+        logged expenses, bills and wishes are not touched.</p>
       <button class="btn danger" id="wipe" style="width:100%;">Erase everything</button>
     </div>
   </section>
@@ -486,7 +491,10 @@ const store = (() => {
  * ledger of what you ACTUALLY paid, one row per bill per month. The month's total
  * uses the actual where you've recorded one and the estimate where you haven't, and
  * always says which. */
+const SCHEMA = 2;
+
 const DEFAULT = {
+  v: SCHEMA,
   tx: [], bills: [], pays: [], wishes: [], quick: [],
   settings: { pot:0, rate:0, take:0, save:0 },
   ui: { ctx:"solo" },
@@ -495,11 +503,30 @@ const DEFAULT = {
   sync: { url:"", token:"", last:0 },
 };
 
-let S = Object.assign({}, DEFAULT, store.get() || {});
+/* Read the stored object BEFORE merging: once DEFAULT is folded in, its own `v`
+   would mask the fact that the saved data predates the schema. */
+const stored = store.get();
+
+let S = Object.assign({}, DEFAULT, stored || {});
 S.settings = Object.assign({}, DEFAULT.settings, S.settings || {});
 S.ui = Object.assign({}, DEFAULT.ui, S.ui || {});
 S.sync = Object.assign({}, DEFAULT.sync, S.sync || {});
 const save = () => store.set(S);
+
+/* v1 -> v2: the app used to ship a built-in list of favourites, and it wrote them
+   into this device's storage on first run. Dropping them from the source doesn't
+   remove them from a device that already saved them, so clear them once, here.
+   Only favourites are touched — expenses, bills and wishes are your real data and
+   are left exactly as they are. */
+if (stored && !(stored.v >= 2)) {
+  const had = (stored.quick || []).length;
+  S.quick = [];
+  S.v = SCHEMA;
+  save();
+  if (had) {
+    setTimeout(() => toast(`Cleared ${had} built-in favourites`), 600);
+  }
+}
 
 /* Every record carries `u` (last touched) and `d` (deleted). Deleting sets a
    tombstone rather than dropping the row — otherwise a delete on the phone would
@@ -1676,6 +1703,14 @@ $("#saveSet").onclick = () => {
   S.settings.take = Number($("#setTake").value) || S.settings.take;
   S.settings.save = Number($("#setSave").value) || S.settings.save;
   save(); toast("Saved");
+};
+
+$("#clearFavs").onclick = () => {
+  const n = S.quick.length;
+  if (!n) return toast("No favourites to clear");
+  S.quick = [];
+  save(); renderTags();
+  toast(`Cleared ${n} favourite${n === 1 ? "" : "s"}`);
 };
 
 $("#wipe").onclick = () => ask(
