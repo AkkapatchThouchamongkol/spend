@@ -534,17 +534,37 @@ function autoMeal() {
 }
 let meal = autoMeal();
 
-/* Categorise a typed-in item so the analysis still works on custom entries. */
-const KW = {
-  drink:["กาแฟ","ชา","นม","น้ำ","โกโก้","ลาเต้","มัทฉะ","อเมริกาโน","coffee","latte","tea"],
-  snack:["ขนม","ไอติม","เค้ก","ทาร์ต","บราวนี่","โอรีโอ","ช้อค","คุกกี้","cake","ice"],
-  transport:["วิน","bts","mrt","bolt","taxi","grab","แท็กซี่","รถ"],
-};
-function guessCat(name) {
-  const s = name.toLowerCase();
-  for (const [c, ws] of Object.entries(KW))
-    if (ws.some((w) => s.includes(w.toLowerCase()))) return c;
-  return "main";
+/* Categories. There is deliberately no built-in word list guessing what your items
+   are: you pick the type when you add something, and a favourite remembers it, so
+   the tiles you tap are already categorised. */
+const CATS = [
+  ["main", "Meal"],
+  ["snack", "Snack"],
+  ["drink", "Drink"],
+  ["transport", "Transport"],
+];
+const DEFAULT_CAT = "main";
+
+/* A row of category chips. Returns () => the selected key. */
+function catPicker(selected) {
+  const w = el("div", "field");
+  const l = el("label"); l.textContent = "Type";
+  const bar = el("div", "bar"); bar.style.margin = "0";
+  let cur = selected || DEFAULT_CAT;
+  CATS.forEach(([k, label]) => {
+    const c = el("button", "chip");
+    c.type = "button";
+    c.textContent = label;
+    c.setAttribute("aria-pressed", k === cur);
+    c.onclick = () => {
+      cur = k;
+      bar.querySelectorAll(".chip").forEach((x) =>
+        x.setAttribute("aria-pressed", x === c));
+    };
+    bar.append(c);
+  });
+  w.append(l, bar);
+  return { node: w, get: () => cur };
 }
 
 function toast(msg) {
@@ -610,7 +630,7 @@ function addTx(name, amount, cat) {
   if (!name || !(amount > 0)) return;
   S.tx.push(touch({
     id: uid(), date: TODAY(), ts: Date.now(), meal,
-    item: name, amount, cat: cat || guessCat(name), ctx: S.ui.ctx,
+    item: name, amount, cat: cat || DEFAULT_CAT, ctx: S.ui.ctx,
     wish: false, d: false,
   }));
   save();
@@ -710,23 +730,8 @@ function editFav(q) {
   const name = mk("Name", q.n);
   const price = mk("Usual price (฿)", q.p, "number");
 
-  const cw = el("div", "field");
-  const cl = el("label"); cl.textContent = "Type";
-  const cbar = el("div", "bar"); cbar.style.margin = "0";
-  let cat = q.c;
-  [["main","Meal"],["snack","Snack"],["drink","Drink"],["transport","Transport"]]
-    .forEach(([k, lbl]) => {
-      const c = el("button", "chip");
-      c.type = "button"; c.textContent = lbl;
-      c.setAttribute("aria-pressed", k === cat);
-      c.onclick = () => {
-        cat = k;
-        cbar.querySelectorAll(".chip").forEach((x) =>
-          x.setAttribute("aria-pressed", x === c));
-      };
-      cbar.append(c);
-    });
-  cw.append(cl, cbar); f.append(cw);
+  const pick = catPicker(q.c);
+  f.append(pick.node);
 
   const once = el("button", "btn ghost");
   once.type = "button";
@@ -734,7 +739,7 @@ function editFav(q) {
   once.textContent = "Log once at this price (don't change the favourite)";
   once.onclick = () => {
     dlg.close();
-    addTx(name.value.trim() || q.n, Number(price.value) || q.p, cat);
+    addTx(name.value.trim() || q.n, Number(price.value) || q.p, pick.get());
   };
   f.append(once);
 
@@ -756,7 +761,7 @@ function editFav(q) {
     if (!n) return;
     q.n = n;
     q.p = Number(price.value) || q.p;
-    q.c = cat;
+    q.c = pick.get();
     save(); dlg.close(); renderTags(); toast("Favourite updated");
   };
   dlg.showModal();
@@ -1307,23 +1312,8 @@ $("#addCustom").onclick = () => {
   const name = mk("What was it?");
   const price = mk("Amount (฿)", "number");
 
-  const cw = el("div", "field");
-  const cl = el("label"); cl.textContent = "Type";
-  const cbar = el("div", "bar"); cbar.style.margin = "0";
-  let cat = null;                        // null = infer from the name
-  [["main","Meal"],["snack","Snack"],["drink","Drink"],["transport","Transport"]]
-    .forEach(([k, lbl]) => {
-      const c = el("button", "chip");
-      c.type = "button"; c.textContent = lbl;
-      c.setAttribute("aria-pressed", "false");
-      c.onclick = () => {
-        cat = k;
-        cbar.querySelectorAll(".chip").forEach((x) =>
-          x.setAttribute("aria-pressed", x === c));
-      };
-      cbar.append(c);
-    });
-  cw.append(cl, cbar); f.append(cw);
+  const pick = catPicker(DEFAULT_CAT);
+  f.append(pick.node);
 
   const fav = el("label", "check");
   const box = el("input");
@@ -1346,7 +1336,7 @@ $("#addCustom").onclick = () => {
     const n = name.value.trim();
     const p = Number(price.value);
     if (!n || !(p > 0)) return;
-    const c = cat || guessCat(n);
+    const c = pick.get();
     if (box.checked) saveFav(n, p, c);
     dlg.close();
     addTx(n, p, c);

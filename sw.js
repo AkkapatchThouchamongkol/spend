@@ -7,7 +7,7 @@
  * falling back to cache when there is no signal. Your data never touches this —
  * it lives in localStorage and is never fetched.
  */
-const CACHE = "spend-v3";
+const CACHE = "spend-v4";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest",
                "./icon-192.png", "./icon-512.png"];
 
