@@ -1,0 +1,16 @@
+# Your private figures — rent, phone bills, salary, savings.
+# This file must NEVER be pushed: GitHub Pages serves the repo publicly.
+my-data.json
+.secret
+.secret/
+
+# Exports
+*.csv
+spend-backup-*.json
+
+node_modules/
+
+# A local copy of the Apps Script with the real SECRET pasted in.
+# apps-script/Code.gs IS tracked and must keep the CHANGE-ME placeholder —
+# if you want a copy with your real secret, name it Code.local.gs.
+*.local.gs

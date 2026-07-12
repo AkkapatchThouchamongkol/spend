@@ -1,0 +1,30 @@
+#!/bin/sh
+# Refuse to commit a real secret or web-app URL to a repo that is served publicly.
+#
+# Enable once:  git config core.hooksPath .githooks
+
+fail=0
+
+# The tracked Code.gs must keep the placeholder. A real secret belongs only in the
+# Sheet's script editor and in .secret/ — never in a tracked file.
+if git diff --cached --name-only | grep -q '^apps-script/Code.gs$'; then
+  if ! git show ":apps-script/Code.gs" | grep -q 'const SECRET = "CHANGE-ME'; then
+    echo "BLOCKED: apps-script/Code.gs no longer has the CHANGE-ME placeholder."
+    echo "         Your real secret must not be committed — this repo is public."
+    echo "         Keep your copy in .secret/ or Code.local.gs instead."
+    fail=1
+  fi
+fi
+
+# Any staged file carrying a deployed Apps Script URL or a long literal secret.
+# Skip this script itself — it necessarily contains the patterns it searches for.
+for f in $(git diff --cached --name-only --diff-filter=ACM); do
+  [ -f "$f" ] || continue
+  [ "$f" = ".githooks/pre-commit" ] && continue
+  if git show ":$f" | grep -qE 'AKfyc|macros/s/[A-Za-z0-9_-]{25,}'; then
+    echo "BLOCKED: $f looks like it contains a deployed Apps Script URL."
+    fail=1
+  fi
+done
+
+[ "$fail" -eq 0 ] || { echo; echo "Nothing was committed."; exit 1; }

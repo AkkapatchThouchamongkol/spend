@@ -1,0 +1,1485 @@
+<title>Spend — expense tracker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#D8471F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Spend">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<style>
+:root{
+  --ground:#f6f4f0; --surface:#ffffff; --surface-2:#fbfaf7;
+  --ink:#1c1a17; --ink-2:#57534c; --ink-3:#8a857c;
+  --line:#e4e0d8; --line-2:#eeebe4;
+  --accent:#d8471f; --accent-ink:#ffffff; --accent-soft:#fdece6;
+  --good:#0e7a5f; --good-soft:#e4f3ee;
+  --warn:#b7791f; --warn-soft:#fbf1de;
+  --shadow:0 1px 2px rgba(28,26,23,.05), 0 4px 16px rgba(28,26,23,.05);
+  --sans:"Noto Sans Thai","Leelawadee UI",Leelawadee,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono",Menlo,monospace;
+  --r:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --ground:#131311; --surface:#1d1c19; --surface-2:#232220;
+    --ink:#f5f2ec; --ink-2:#b4aea3; --ink-3:#837d72;
+    --line:#2e2c27; --line-2:#282621;
+    --accent:#ff6a3d; --accent-ink:#1a0d07; --accent-soft:#3a1e14;
+    --good:#35b894; --good-soft:#123028;
+    --warn:#e0a33e; --warn-soft:#332612;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#131311; --surface:#1d1c19; --surface-2:#232220;
+  --ink:#f5f2ec; --ink-2:#b4aea3; --ink-3:#837d72;
+  --line:#2e2c27; --line-2:#282621;
+  --accent:#ff6a3d; --accent-ink:#1a0d07; --accent-soft:#3a1e14;
+  --good:#35b894; --good-soft:#123028;
+  --warn:#e0a33e; --warn-soft:#332612;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25);
+}
+:root[data-theme="light"]{
+  --ground:#f6f4f0; --surface:#ffffff; --surface-2:#fbfaf7;
+  --ink:#1c1a17; --ink-2:#57534c; --ink-3:#8a857c;
+  --line:#e4e0d8; --line-2:#eeebe4;
+  --accent:#d8471f; --accent-ink:#ffffff; --accent-soft:#fdece6;
+  --good:#0e7a5f; --good-soft:#e4f3ee;
+  --warn:#b7791f; --warn-soft:#fbf1de;
+  --shadow:0 1px 2px rgba(28,26,23,.05), 0 4px 16px rgba(28,26,23,.05);
+}
+
+*{box-sizing:border-box;}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:var(--sans); line-height:1.5;
+  -webkit-tap-highlight-color:transparent;
+}
+.num{font-family:var(--mono); font-variant-numeric:tabular-nums;}
+
+.app{max-width:560px; margin:0 auto; padding:0 16px 96px; min-height:100vh;}
+
+/* ---------- header ---------- */
+header{padding:20px 0 12px; display:flex; align-items:flex-end; gap:14px;}
+.today{flex:1; min-width:0;}
+.eyebrow{
+  font-size:.7rem; text-transform:uppercase; letter-spacing:.09em;
+  color:var(--ink-3); font-weight:600;
+}
+.total{
+  font-family:var(--mono); font-size:2.6rem; font-weight:600; line-height:1.05;
+  letter-spacing:-.02em; margin-top:2px;
+}
+.total .cur{font-size:1.2rem; color:var(--ink-3); margin-right:2px;}
+.mtd{text-align:right; font-size:.78rem; color:var(--ink-2); line-height:1.35;}
+.mtd b{display:block; font-family:var(--mono); font-size:1.05rem; color:var(--ink);}
+
+/* ---------- controls ---------- */
+.bar{display:flex; gap:6px; margin:14px 0 10px; flex-wrap:wrap;}
+.chip{
+  flex:1; min-width:0; padding:9px 6px; border:1px solid var(--line);
+  background:var(--surface); color:var(--ink-2); border-radius:999px;
+  font:inherit; font-size:.82rem; font-weight:500; cursor:pointer;
+  transition:background .12s, color .12s, border-color .12s;
+}
+.chip[aria-pressed="true"]{
+  background:var(--accent); border-color:var(--accent); color:var(--accent-ink);
+  font-weight:600;
+}
+.chip:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px;
+}
+.sub{font-size:.72rem; color:var(--ink-3); margin:2px 2px 8px;}
+
+/* ---------- quick-add price tags ---------- */
+.tags{display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:8px;}
+.tag{
+  position:relative; text-align:left; padding:10px 10px 8px;
+  background:var(--surface); border:1px solid var(--line); border-radius:12px;
+  cursor:pointer; font:inherit; color:var(--ink); box-shadow:var(--shadow);
+  transition:transform .08s ease, border-color .12s;
+}
+.tag:active{transform:scale(.96); border-color:var(--accent);}
+.tag .nm{
+  font-size:.86rem; font-weight:600; display:block;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.tag .pr{
+  font-family:var(--mono); font-size:.78rem; color:var(--ink-3); margin-top:3px;
+  display:block;
+}
+.tag .dot{
+  position:absolute; top:9px; right:9px; width:6px; height:6px; border-radius:50%;
+}
+.d-main{background:var(--accent);} .d-snack{background:var(--warn);}
+.d-drink{background:var(--good);} .d-transport{background:var(--ink-3);}
+
+/* ---------- receipt ---------- */
+.receipt{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  padding:6px 14px; margin-top:14px; box-shadow:var(--shadow);
+}
+.row{
+  display:flex; align-items:baseline; gap:8px; padding:11px 0;
+  border-bottom:1px dashed var(--line-2); cursor:pointer;
+}
+.row:last-child{border-bottom:none;}
+.row .nm{font-size:.92rem; font-weight:500;}
+.row .meta{font-size:.7rem; color:var(--ink-3); white-space:nowrap;}
+.row .lead{
+  flex:1; border-bottom:1px dotted var(--line); transform:translateY(-3px);
+  min-width:12px;
+}
+.row .amt{font-family:var(--mono); font-size:.95rem; font-weight:600;}
+.row.wish .nm::after{content:" ★"; color:var(--accent); font-size:.8em;}
+.empty{padding:28px 8px; text-align:center; color:var(--ink-3); font-size:.86rem;}
+
+/* ---------- generic ---------- */
+h2{font-size:1.05rem; margin:26px 0 4px; letter-spacing:-.01em;}
+h2:first-child{margin-top:8px;}
+.hint{font-size:.78rem; color:var(--ink-2); margin:0 0 10px;}
+.card{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  padding:16px; box-shadow:var(--shadow); margin-bottom:12px;
+}
+.btn{
+  padding:11px 16px; border-radius:10px; border:1px solid var(--line);
+  background:var(--surface); color:var(--ink); font:inherit; font-size:.88rem;
+  font-weight:600; cursor:pointer;
+}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+.btn.ghost{background:transparent;}
+.btn.danger{color:var(--accent); border-color:var(--accent);}
+.btn:active{transform:scale(.97);}
+.field{display:flex; flex-direction:column; gap:5px; margin-bottom:10px;}
+.field label{font-size:.72rem; text-transform:uppercase; letter-spacing:.07em;
+  color:var(--ink-3); font-weight:600;}
+input,select{
+  padding:11px 12px; border:1px solid var(--line); border-radius:10px;
+  background:var(--surface-2); color:var(--ink); font:inherit; font-size:1rem;
+  width:100%;
+}
+input[type=number]{font-family:var(--mono);}
+.inline{display:flex; gap:8px;} .inline>*{flex:1;}
+.check{
+  display:flex; align-items:flex-start; gap:10px; padding:12px;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:10px;
+  margin-bottom:12px; cursor:pointer; font-size:.88rem; line-height:1.4;
+}
+.check input{width:20px; height:20px; flex:none; margin:1px 0 0; accent-color:var(--accent);}
+.check .hint{display:block; font-size:.76rem;}
+
+/* ---------- calendar ---------- */
+.cal{display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-top:10px;}
+.dow{
+  text-align:center; font-size:.62rem; color:var(--ink-3); font-weight:600;
+  text-transform:uppercase; letter-spacing:.05em; padding-bottom:2px;
+}
+.day{
+  aspect-ratio:1; border-radius:9px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; font-size:.66rem; gap:1px;
+  border:1px solid transparent; cursor:pointer; background:var(--surface);
+}
+.day.blank{background:transparent; cursor:default;}
+/* An untracked day is a hole, not a zero — dashed ring, no fill. */
+.day.miss{border:1px dashed var(--line); background:transparent; color:var(--ink-3);}
+.day.future{border:1px solid var(--line-2); background:transparent; color:var(--ink-3); opacity:.5;}
+.day .dn{font-weight:600;}
+.day .dv{font-family:var(--mono); font-size:.58rem; opacity:.85;}
+.day.lv1{background:var(--accent-soft);} .day.lv2{background:color-mix(in srgb,var(--accent) 30%,var(--surface));}
+.day.lv3{background:color-mix(in srgb,var(--accent) 58%,var(--surface)); color:#fff;}
+.day.lv4{background:var(--accent); color:var(--accent-ink);}
+.day.today{outline:2px solid var(--ink); outline-offset:1px;}
+.stats{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:14px;}
+.stat{background:var(--surface-2); border-radius:10px; padding:10px; text-align:center;}
+.stat .v{font-family:var(--mono); font-size:1.25rem; font-weight:600;}
+.stat .l{font-size:.66rem; color:var(--ink-3); text-transform:uppercase;
+  letter-spacing:.05em; font-weight:600;}
+
+/* ---------- wishlist ---------- */
+.wish-item{border-bottom:1px solid var(--line-2); padding:14px 0;}
+.wish-item:last-child{border-bottom:none;}
+.wish-top{display:flex; align-items:baseline; gap:8px;}
+.wish-top .nm{font-weight:600; flex:1;}
+.wish-top .pr{font-family:var(--mono); font-weight:600;}
+.track{height:6px; background:var(--line-2); border-radius:99px; margin:9px 0 6px;
+  overflow:hidden;}
+.fill{height:100%; background:var(--good); border-radius:99px;}
+.fill.full{background:var(--good);}
+.eta{font-size:.75rem; color:var(--ink-2);}
+.eta.ready{color:var(--good); font-weight:600;}
+.pot{
+  background:linear-gradient(180deg,var(--good-soft),var(--surface));
+  border:1px solid var(--line); border-radius:var(--r); padding:18px; margin-bottom:12px;
+}
+.pot .v{font-family:var(--mono); font-size:2.1rem; font-weight:600; letter-spacing:-.02em;}
+.nudge{
+  background:var(--warn-soft); border-radius:10px; padding:12px 14px;
+  font-size:.8rem; color:var(--ink); margin-top:12px; line-height:1.5;
+}
+
+/* ---------- bills ---------- */
+.bill{display:flex; align-items:center; gap:10px; padding:12px 0;
+  border-bottom:1px solid var(--line-2);}
+.bill:last-child{border-bottom:none;}
+.bill .nm{flex:1; font-weight:500;}
+.bill .cad{font-size:.66rem; color:var(--ink-3); text-transform:uppercase;
+  letter-spacing:.05em;}
+.bill .amt{font-family:var(--mono); font-weight:600;}
+.bill.off{opacity:.4;}
+.bill.off .nm{text-decoration:line-through;}
+.sw{width:38px; height:22px; border-radius:99px; border:none; background:var(--line);
+  position:relative; cursor:pointer; flex:none;}
+.sw::after{content:""; position:absolute; top:3px; left:3px; width:16px; height:16px;
+  border-radius:50%; background:var(--surface); transition:left .15s;}
+.sw[aria-pressed="true"]{background:var(--good);}
+.sw[aria-pressed="true"]::after{left:19px;}
+.tot-row{display:flex; justify-content:space-between; align-items:baseline;
+  padding-top:14px; margin-top:6px; border-top:2px solid var(--ink); font-weight:700;}
+.tot-row .amt{font-family:var(--mono); font-size:1.2rem;}
+
+/* ---------- tabs ---------- */
+nav{
+  position:fixed; left:0; right:0; bottom:0; z-index:20;
+  background:color-mix(in srgb,var(--surface) 92%,transparent);
+  backdrop-filter:blur(12px); border-top:1px solid var(--line);
+  padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+}
+.tabs{max-width:560px; margin:0 auto; display:grid; grid-template-columns:repeat(5,1fr);}
+.tab{
+  background:none; border:none; padding:7px 2px 5px; cursor:pointer;
+  color:var(--ink-3); font:inherit; font-size:.64rem; font-weight:600;
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  border-radius:10px;
+}
+.tab svg{width:21px; height:21px; stroke:currentColor; fill:none; stroke-width:1.7;
+  stroke-linecap:round; stroke-linejoin:round;}
+.tab[aria-selected="true"]{color:var(--accent);}
+.panel{display:none;} .panel.on{display:block; animation:in .18s ease;}
+@keyframes in{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
+
+/* ---------- toast + sheet ---------- */
+#toast{
+  position:fixed; left:50%; bottom:84px; transform:translate(-50%,20px);
+  background:var(--ink); color:var(--ground); padding:10px 16px; border-radius:99px;
+  font-size:.84rem; font-weight:600; opacity:0; pointer-events:none;
+  transition:opacity .2s, transform .2s; z-index:40; white-space:nowrap;
+}
+#toast.show{opacity:1; transform:translate(-50%,0);}
+dialog{
+  border:none; border-radius:18px 18px 0 0; padding:20px; width:100%;
+  max-width:560px; background:var(--surface); color:var(--ink);
+  margin:auto auto 0; box-shadow:var(--shadow);
+}
+dialog::backdrop{background:rgba(0,0,0,.45);}
+dialog h3{margin:0 0 14px; font-size:1.05rem;}
+.banner{
+  background:var(--warn-soft); border:1px solid var(--warn); border-radius:10px;
+  padding:10px 12px; font-size:.78rem; margin:10px 0;
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important; transition:none !important;}
+}
+</style>
+
+<div class="app">
+  <header>
+    <div class="today">
+      <div class="eyebrow" id="dateLbl">Today</div>
+      <div class="total num"><span class="cur">฿</span><span id="todayTot">0</span></div>
+    </div>
+    <div class="mtd">
+      <b class="num" id="mtdTot">฿0</b>
+      this month
+      <div style="color:var(--ink-3)" id="mtdDays">0 days logged</div>
+    </div>
+  </header>
+
+  <div id="storeWarn"></div>
+
+  <!-- ===================== LOG ===================== -->
+  <section class="panel on" id="p-log">
+    <div class="bar" id="mealBar"></div>
+    <div class="bar" id="ctxBar"></div>
+    <div class="sub" id="ctxHint"></div>
+
+    <div class="tags" id="tags"></div>
+
+    <button class="btn ghost" id="addCustom"
+            style="width:100%; margin-top:10px; border-style:dashed;">
+      + Add an expense
+    </button>
+    <p class="sub" id="favHint" style="text-align:center; margin-top:8px;"></p>
+
+    <h2>Today</h2>
+    <div class="receipt" id="receipt"></div>
+  </section>
+
+  <!-- ===================== DAYS ===================== -->
+  <section class="panel" id="p-days">
+    <h2 style="display:flex; align-items:center; gap:8px;">
+      <button class="btn ghost" id="prevM" style="padding:5px 10px;">‹</button>
+      <span id="monthLbl" style="flex:1; text-align:center;"></span>
+      <button class="btn ghost" id="nextM" style="padding:5px 10px;">›</button>
+    </h2>
+    <p class="hint">A dashed square is a day you never logged. Filled squares get
+      darker the more you spent.</p>
+    <div class="card">
+      <div class="cal" id="cal"></div>
+      <div class="stats">
+        <div class="stat"><div class="v num" id="sCov">0%</div><div class="l">Logged</div></div>
+        <div class="stat"><div class="v num" id="sStreak">0</div><div class="l">Streak</div></div>
+        <div class="stat"><div class="v num" id="sAvg">฿0</div><div class="l">Avg / day</div></div>
+      </div>
+    </div>
+    <div id="dayDetail"></div>
+  </section>
+
+  <!-- ===================== WISHLIST ===================== -->
+  <section class="panel" id="p-wish">
+    <h2>Wishlist fund</h2>
+    <p class="hint">This is the point of tracking — not restriction, but knowing when
+      you can buy the thing.</p>
+    <div class="pot">
+      <div class="eyebrow">Saved so far</div>
+      <div class="v num">฿<span id="potV">0</span></div>
+      <div class="eta" id="potRate"></div>
+      <div class="inline" style="margin-top:12px;">
+        <button class="btn" id="editPot">Update balance</button>
+        <button class="btn" id="editRate">Monthly amount</button>
+      </div>
+    </div>
+    <div class="nudge" id="nudge"></div>
+
+    <h2>What you're saving for</h2>
+    <div class="card" id="wishes"></div>
+    <button class="btn ghost" id="addWish"
+            style="width:100%; border-style:dashed;">+ Add a wish</button>
+  </section>
+
+  <!-- ===================== BILLS ===================== -->
+  <section class="panel" id="p-bills">
+    <h2>Recurring</h2>
+    <p class="hint">Declared once — never logged daily. A bill is paid per month, not
+      on a date, and treating it like a purchase is what made DataCamp look like a
+      ฿1,274/month habit.</p>
+    <div class="card" id="bills"></div>
+    <button class="btn ghost" id="addBill"
+            style="width:100%; border-style:dashed;">+ Add a bill</button>
+  </section>
+
+  <!-- ===================== DATA ===================== -->
+  <section class="panel" id="p-data">
+    <h2>Sync to your Google Sheet</h2>
+    <p class="hint">Keeps your phone and computer in step, and survives clearing
+      your browser. These two values are stored on this device only — never in the
+      app's public source. Setup steps are in the README.</p>
+    <div class="card">
+      <div class="field">
+        <label for="syncUrl">Apps Script web-app URL</label>
+        <input type="url" id="syncUrl" placeholder="https://script.google.com/macros/s/…/exec">
+      </div>
+      <div class="field">
+        <label for="syncTok">Shared secret</label>
+        <input type="password" id="syncTok" placeholder="the SECRET from Code.gs">
+      </div>
+      <div class="inline">
+        <button class="btn" id="syncSave">Save</button>
+        <button class="btn primary" id="syncGo">Sync now</button>
+      </div>
+      <p class="hint" id="syncStatus" style="margin:12px 0 0;">Not connected.</p>
+      <button class="btn ghost" id="syncFull"
+              style="width:100%; margin-top:8px; border-style:dashed;">
+        Pull everything from the Sheet
+      </button>
+    </div>
+
+    <h2>Export</h2>
+    <p class="hint">The CSV drops straight into <code>data/expenses.csv</code> and
+      <code>python analyze.py</code> reads it as-is.</p>
+    <div class="card">
+      <div class="inline" style="margin-bottom:8px;">
+        <button class="btn primary" id="expCsv">Spending CSV</button>
+        <button class="btn" id="expBills">Bills CSV</button>
+      </div>
+      <button class="btn" id="expJson" style="width:100%;">Full backup (JSON)</button>
+      <p class="hint" style="margin:12px 0 6px;">Everything lives on this phone only.
+        Back up now and then, or you can lose it.</p>
+      <label class="btn ghost" style="width:100%; display:block; text-align:center;
+             border-style:dashed;">
+        Restore from backup
+        <input type="file" id="impJson" accept=".json" hidden>
+      </label>
+    </div>
+
+    <h2>Settings</h2>
+    <div class="card">
+      <div class="field">
+        <label for="setTake">Take-home / month (฿)</label>
+        <input type="number" id="setTake" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="setSave">Savings target / month (฿)</label>
+        <input type="number" id="setSave" inputmode="numeric">
+      </div>
+      <button class="btn" id="saveSet">Save</button>
+    </div>
+
+    <h2>Danger</h2>
+    <div class="card">
+      <button class="btn danger" id="wipe" style="width:100%;">Erase everything</button>
+    </div>
+  </section>
+</div>
+
+<nav><div class="tabs" id="tabs"></div></nav>
+<div id="toast"></div>
+
+<dialog id="sheet"><form method="dialog" id="sheetForm"></form></dialog>
+
+<script>
+"use strict";
+
+/* ---------------------------------------------------------------- storage */
+/* Private-mode browsers and sandboxed frames throw on localStorage. Fall back
+   to memory so the app still works for the session, and say so plainly. */
+const store = (() => {
+  let ok = true;
+  try { localStorage.setItem("__t", "1"); localStorage.removeItem("__t"); }
+  catch { ok = false; }
+  let mem = null;
+  return {
+    ok,
+    get() {
+      if (!ok) return mem;
+      try { return JSON.parse(localStorage.getItem("spend") || "null"); }
+      catch { return null; }
+    },
+    set(v) {
+      if (!ok) { mem = v; return; }
+      try { localStorage.setItem("spend", JSON.stringify(v)); }
+      catch { ok = false; mem = v; }
+    },
+  };
+})();
+
+/* NOTE: this page is served publicly, so nothing personal is baked into it —
+   no favourites, no bills, no salary. You build your own favourites as you log:
+   tick "Save to favourites" on anything you buy again. Rent and pay are entered
+   on the device and live only in this browser's storage. */
+const DEFAULT = {
+  tx: [], bills: [], wishes: [], quick: [],
+  settings: { pot:0, rate:0, take:0, save:0 },
+  ui: { ctx:"solo" },
+  /* Sync config is entered on this device and stored here — never in the repo,
+     so the public page carries no secret. */
+  sync: { url:"", token:"", last:0 },
+};
+
+let S = Object.assign({}, DEFAULT, store.get() || {});
+S.settings = Object.assign({}, DEFAULT.settings, S.settings || {});
+S.ui = Object.assign({}, DEFAULT.ui, S.ui || {});
+S.sync = Object.assign({}, DEFAULT.sync, S.sync || {});
+const save = () => store.set(S);
+
+/* Every record carries `u` (last touched) and `d` (deleted). Deleting sets a
+   tombstone rather than dropping the row — otherwise a delete on the phone would
+   be silently resurrected by the next sync from the laptop. */
+/* `u` is this device's clock — it only ever decides who edited last.
+   `dirty` is what marks a record as "not yet on the Sheet". We cannot use `u > lastSync`
+   for that, because lastSync is the SERVER's clock: comparing the two would drop
+   records whenever the phone's clock drifts from the server's. */
+/* Strictly increasing, even when two edits land in the same millisecond. Plain
+   Date.now() can return the same value twice, and then "newer wins" compares equal
+   and the second edit is silently discarded — including a delete. */
+let lastTick = 0;
+const tick = () => (lastTick = Math.max(Date.now(), lastTick + 1));
+
+const touch = (r) => { r.u = tick(); r.dirty = 1; return r; };
+const live = (arr) => arr.filter((r) => !r.d);
+
+/* Records from an older backup (or from my-data.json) have no sync fields yet. */
+function normalize(allDirty) {
+  ["tx", "bills", "wishes"].forEach((k) => {
+    (S[k] || []).forEach((r) => {
+      if (r.u === undefined) { r.u = r.ts || 1; r.dirty = 1; }
+      if (r.d === undefined) r.d = false;
+      if (allDirty) r.dirty = 1;
+    });
+  });
+}
+normalize();
+
+/* ------------------------------------------------------------------ utils */
+const $ = (s) => document.querySelector(s);
+const el = (t, c) => { const e = document.createElement(t); if (c) e.className = c; return e; };
+const baht = (n) => "฿" + Math.round(n).toLocaleString("en-US");
+const nf = (n) => Math.round(n).toLocaleString("en-US");
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const TODAY = () => iso(new Date());
+const uid = () => Date.now() + Math.random();
+
+const MEALS = ["morning","noon","evening"];
+const CTX = [
+  { k:"solo",    l:"Alone" },
+  { k:"friends", l:"Friends" },
+  { k:"family",  l:"Family" },
+  { k:"work",    l:"Work" },
+];
+
+/* The meal slot you're in is almost always the one the clock says. */
+function autoMeal() {
+  const h = new Date().getHours();
+  return h < 11 ? "morning" : h < 16 ? "noon" : "evening";
+}
+let meal = autoMeal();
+
+/* Categorise a typed-in item so the analysis still works on custom entries. */
+const KW = {
+  drink:["กาแฟ","ชา","นม","น้ำ","โกโก้","ลาเต้","มัทฉะ","อเมริกาโน","coffee","latte","tea"],
+  snack:["ขนม","ไอติม","เค้ก","ทาร์ต","บราวนี่","โอรีโอ","ช้อค","คุกกี้","cake","ice"],
+  transport:["วิน","bts","mrt","bolt","taxi","grab","แท็กซี่","รถ"],
+};
+function guessCat(name) {
+  const s = name.toLowerCase();
+  for (const [c, ws] of Object.entries(KW))
+    if (ws.some((w) => s.includes(w.toLowerCase()))) return c;
+  return "main";
+}
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove("show"), 1600);
+}
+
+function download(name, text, mime) {
+  const b = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
+  const a = el("a");
+  a.href = URL.createObjectURL(b);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/* ------------------------------------------------------------------ sheet */
+/* One reusable bottom sheet instead of prompt() — prompt() is blocked in many
+   embedded contexts and looks nothing like the app. */
+function ask(title, fields, onOk) {
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = title; f.append(h);
+
+  fields.forEach((fd) => {
+    const w = el("div", "field");
+    const l = el("label"); l.textContent = fd.label; l.htmlFor = "f_" + fd.k;
+    const i = el("input");
+    i.id = "f_" + fd.k;
+    i.type = fd.type || "text";
+    i.value = fd.value ?? "";
+    if (fd.type === "number") i.inputMode = "numeric";
+    w.append(l, i); f.append(w);
+  });
+
+  const row = el("div", "inline");
+  const cancel = el("button", "btn ghost");
+  cancel.type = "button"; cancel.textContent = "Cancel";
+  cancel.onclick = () => dlg.close();
+  const ok = el("button", "btn primary");
+  ok.type = "submit"; ok.textContent = "Save";
+  row.append(cancel, ok); f.append(row);
+
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const out = {};
+    fields.forEach((fd) => {
+      const v = $("#f_" + fd.k).value;
+      out[fd.k] = fd.type === "number" ? Number(v) : v.trim();
+    });
+    dlg.close();
+    onOk(out);
+  };
+  dlg.showModal();
+  setTimeout(() => f.querySelector("input")?.focus(), 50);
+}
+
+/* ------------------------------------------------------------------- LOG  */
+function addTx(name, amount, cat) {
+  if (!name || !(amount > 0)) return;
+  S.tx.push(touch({
+    id: uid(), date: TODAY(), ts: Date.now(), meal,
+    item: name, amount, cat: cat || guessCat(name), ctx: S.ui.ctx,
+    wish: false, d: false,
+  }));
+  save();
+  render();
+  queueSync();
+  if (navigator.vibrate) navigator.vibrate(12);
+  toast(`${name} · ${baht(amount)}`);
+}
+
+function renderBars() {
+  const mb = $("#mealBar"); mb.innerHTML = "";
+  MEALS.forEach((m) => {
+    const b = el("button", "chip");
+    b.type = "button";
+    b.textContent = m[0].toUpperCase() + m.slice(1);
+    b.setAttribute("aria-pressed", m === meal);
+    b.onclick = () => { meal = m; renderBars(); };
+    mb.append(b);
+  });
+
+  const cb = $("#ctxBar"); cb.innerHTML = "";
+  CTX.forEach((c) => {
+    const b = el("button", "chip");
+    b.type = "button";
+    b.textContent = c.l;
+    b.setAttribute("aria-pressed", c.k === S.ui.ctx);
+    b.onclick = () => { S.ui.ctx = c.k; save(); renderBars(); };
+    cb.append(b);
+  });
+
+  $("#ctxHint").textContent = S.ui.ctx === "solo"
+    ? "Who you're with is the one thing the old log never captured."
+    : `Tagging as “${CTX.find((c) => c.k === S.ui.ctx).l}” — this is the ฿3,000/month we couldn't see before.`;
+}
+
+function renderTags() {
+  const g = $("#tags"); g.innerHTML = "";
+
+  if (!S.quick.length) {
+    const e = el("div", "empty");
+    e.style.gridColumn = "1 / -1";
+    e.innerHTML = "No favourites yet.<br>Add an expense below and tick " +
+                  "<b>Save to favourites</b> — it becomes a one-tap tile.";
+    g.append(e);
+    return;
+  }
+
+  S.quick.forEach((q) => {
+    const b = el("button", "tag");
+    b.type = "button";
+    b.innerHTML =
+      `<span class="dot d-${q.c}"></span>` +
+      `<span class="nm"></span><span class="pr num">฿${nf(q.p)}</span>`;
+    b.querySelector(".nm").textContent = q.n;
+    b.onclick = () => { if (!b._held) addTx(q.n, q.p, q.c); b._held = false; };
+
+    /* Long-press opens the favourite for editing. A tap logs it; a hold changes
+       it — so the fast path stays one tap. */
+    let timer;
+    const start = () => {
+      b._held = false;
+      timer = setTimeout(() => { b._held = true; editFav(q); }, 500);
+    };
+    const stop = () => clearTimeout(timer);
+    b.addEventListener("touchstart", start, { passive:true });
+    b.addEventListener("touchend", stop);
+    b.addEventListener("touchmove", stop);
+    b.addEventListener("mousedown", start);
+    b.addEventListener("mouseup", stop);
+    b.addEventListener("mouseleave", stop);
+    b.addEventListener("contextmenu", (e) => { e.preventDefault(); stop(); editFav(q); });
+    g.append(b);
+  });
+
+  $("#favHint").textContent = S.quick.length
+    ? "Tap a tile to log it. Hold one to rename, reprice or delete it."
+    : "";
+}
+
+/* Edit a favourite: rename, reprice, recategorise, or delete it. Also lets you
+   log it once at a different price without changing the saved default. */
+function editFav(q) {
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = "Edit favourite"; f.append(h);
+
+  const mk = (label, value, type) => {
+    const w = el("div", "field");
+    const l = el("label"); l.textContent = label;
+    const i = el("input");
+    i.type = type || "text";
+    if (type === "number") i.inputMode = "numeric";
+    i.value = value;
+    w.append(l, i); f.append(w);
+    return i;
+  };
+  const name = mk("Name", q.n);
+  const price = mk("Usual price (฿)", q.p, "number");
+
+  const cw = el("div", "field");
+  const cl = el("label"); cl.textContent = "Type";
+  const cbar = el("div", "bar"); cbar.style.margin = "0";
+  let cat = q.c;
+  [["main","Meal"],["snack","Snack"],["drink","Drink"],["transport","Transport"]]
+    .forEach(([k, lbl]) => {
+      const c = el("button", "chip");
+      c.type = "button"; c.textContent = lbl;
+      c.setAttribute("aria-pressed", k === cat);
+      c.onclick = () => {
+        cat = k;
+        cbar.querySelectorAll(".chip").forEach((x) =>
+          x.setAttribute("aria-pressed", x === c));
+      };
+      cbar.append(c);
+    });
+  cw.append(cl, cbar); f.append(cw);
+
+  const once = el("button", "btn ghost");
+  once.type = "button";
+  once.style.width = "100%";
+  once.textContent = "Log once at this price (don't change the favourite)";
+  once.onclick = () => {
+    dlg.close();
+    addTx(name.value.trim() || q.n, Number(price.value) || q.p, cat);
+  };
+  f.append(once);
+
+  const row = el("div", "inline");
+  row.style.marginTop = "10px";
+  const del = el("button", "btn danger");
+  del.type = "button"; del.textContent = "Delete";
+  del.onclick = () => {
+    S.quick = S.quick.filter((x) => x !== q);
+    save(); dlg.close(); renderTags(); toast("Removed from favourites");
+  };
+  const ok = el("button", "btn primary");
+  ok.type = "submit"; ok.textContent = "Save";
+  row.append(del, ok); f.append(row);
+
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const n = name.value.trim();
+    if (!n) return;
+    q.n = n;
+    q.p = Number(price.value) || q.p;
+    q.c = cat;
+    save(); dlg.close(); renderTags(); toast("Favourite updated");
+  };
+  dlg.showModal();
+  setTimeout(() => name.focus(), 50);
+}
+
+/* Favourites are keyed by name: logging the same thing twice updates the tile's
+   price rather than creating a duplicate tile. */
+function saveFav(name, price, cat) {
+  const found = S.quick.find((q) => q.n.toLowerCase() === name.toLowerCase());
+  if (found) { found.p = price; found.c = cat; }
+  else S.quick.push({ n: name, p: price, c: cat });
+  save();
+}
+
+function renderReceipt() {
+  const today = live(S.tx).filter((t) => t.date === TODAY())
+                          .sort((a, b) => a.ts - b.ts);
+  const r = $("#receipt"); r.innerHTML = "";
+
+  if (!today.length) {
+    const e = el("div", "empty");
+    e.textContent = "Nothing yet. Tap a tile above.";
+    r.append(e);
+  }
+
+  today.forEach((t) => {
+    const row = el("div", "row" + (t.wish ? " wish" : ""));
+    const nm = el("span", "nm"); nm.textContent = t.item;
+    const meta = el("span", "meta");
+    meta.textContent = t.meal.slice(0,3) + (t.ctx !== "solo" ? " · " + t.ctx : "");
+    const lead = el("span", "lead");
+    const amt = el("span", "amt num"); amt.textContent = baht(t.amount);
+    row.append(nm, meta, lead, amt);
+    row.onclick = () => editTx(t);
+    r.append(row);
+  });
+
+  const sum = today.reduce((a, t) => a + t.amount, 0);
+  $("#todayTot").textContent = nf(sum);
+
+  const mk = TODAY().slice(0, 7);
+  const mtx = live(S.tx).filter((t) => t.date.startsWith(mk));
+  $("#mtdTot").textContent = baht(mtx.reduce((a, t) => a + t.amount, 0));
+  const days = new Set(mtx.map((t) => t.date)).size;
+  $("#mtdDays").textContent = `${days} day${days === 1 ? "" : "s"} logged`;
+
+  const d = new Date();
+  $("#dateLbl").textContent = d.toLocaleDateString(undefined,
+    { weekday:"long", day:"numeric", month:"long" });
+}
+
+function editTx(t) {
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = t.item; f.append(h);
+
+  const w = el("div", "field");
+  const l = el("label"); l.textContent = "Amount (฿)";
+  const i = el("input"); i.type = "number"; i.inputMode = "numeric"; i.value = t.amount;
+  w.append(l, i); f.append(w);
+
+  const wr = el("div", "field");
+  const wl = el("label"); wl.textContent = "Mark as";
+  const star = el("button", "chip");
+  star.type = "button";
+  star.textContent = t.wish ? "★ Wishlist buy" : "☆ Wishlist buy";
+  star.setAttribute("aria-pressed", !!t.wish);
+  let wish = !!t.wish;
+  star.onclick = () => {
+    wish = !wish;
+    star.setAttribute("aria-pressed", wish);
+    star.textContent = wish ? "★ Wishlist buy" : "☆ Wishlist buy";
+  };
+  wr.append(wl, star); f.append(wr);
+
+  const row = el("div", "inline");
+  const del = el("button", "btn danger");
+  del.type = "button"; del.textContent = "Delete";
+  del.onclick = () => {
+    t.d = true; touch(t);            // tombstone, so the delete syncs
+    save(); dlg.close(); render(); queueSync(); toast("Deleted");
+  };
+  const ok = el("button", "btn primary");
+  ok.type = "submit"; ok.textContent = "Save";
+  row.append(del, ok); f.append(row);
+
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    t.amount = Number(i.value) || t.amount;
+    t.wish = wish;
+    touch(t);
+    save(); dlg.close(); render(); queueSync();
+  };
+  dlg.showModal();
+}
+
+/* ------------------------------------------------------------------ DAYS  */
+let calM = new Date();
+
+function renderCal() {
+  const y = calM.getFullYear(), m = calM.getMonth();
+  $("#monthLbl").textContent = calM.toLocaleDateString(undefined,
+    { month:"long", year:"numeric" });
+
+  const byDay = {};
+  live(S.tx).forEach((t) => { byDay[t.date] = (byDay[t.date] || 0) + t.amount; });
+
+  const vals = Object.values(byDay);
+  const max = vals.length ? Math.max(...vals) : 1;
+  const c = $("#cal"); c.innerHTML = "";
+
+  ["M","T","W","T","F","S","S"].forEach((d) => {
+    const h = el("div", "dow"); h.textContent = d; c.append(h);
+  });
+
+  const first = new Date(y, m, 1);
+  const lead = (first.getDay() + 6) % 7;            // Monday-first
+  const days = new Date(y, m + 1, 0).getDate();
+  for (let i = 0; i < lead; i++) c.append(el("div", "day blank"));
+
+  const todayStr = TODAY();
+  let tracked = 0, elapsed = 0;
+
+  for (let d = 1; d <= days; d++) {
+    const key = iso(new Date(y, m, d));
+    const v = byDay[key] || 0;
+    const future = key > todayStr;
+    if (!future) elapsed++;
+    if (v > 0) tracked++;
+
+    const cell = el("div", "day");
+    if (future) cell.classList.add("future");
+    else if (v > 0) {
+      const lv = Math.min(4, Math.ceil((v / max) * 4)) || 1;
+      cell.classList.add("lv" + lv);
+    } else cell.classList.add("miss");
+    if (key === todayStr) cell.classList.add("today");
+
+    const dn = el("span", "dn"); dn.textContent = d;
+    cell.append(dn);
+    if (v > 0) {
+      const dv = el("span", "dv"); dv.textContent = nf(v);
+      cell.append(dv);
+    }
+    cell.onclick = () => showDay(key);
+    c.append(cell);
+  }
+
+  $("#sCov").textContent = elapsed ? Math.round((tracked / elapsed) * 100) + "%" : "0%";
+  $("#sAvg").textContent = tracked
+    ? baht(Object.entries(byDay)
+        .filter(([k]) => k.startsWith(`${y}-${String(m+1).padStart(2,"0")}`))
+        .reduce((a, [, v]) => a + v, 0) / tracked)
+    : "฿0";
+
+  /* Streak: consecutive logged days counting back from today. */
+  let streak = 0;
+  for (let i = 0; ; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    if (byDay[iso(d)]) streak++;
+    else if (i > 0) break;                  // today not yet logged is not a break
+    else if (i === 0) continue;
+  }
+  $("#sStreak").textContent = streak;
+}
+
+function showDay(key) {
+  const rows = live(S.tx).filter((t) => t.date === key).sort((a, b) => a.ts - b.ts);
+  const box = $("#dayDetail"); box.innerHTML = "";
+  const card = el("div", "card");
+  const h = el("h2");
+  h.style.margin = "0 0 6px";
+  h.textContent = new Date(key + "T00:00").toLocaleDateString(undefined,
+    { weekday:"long", day:"numeric", month:"short" });
+  card.append(h);
+
+  if (!rows.length) {
+    const p = el("p", "hint");
+    p.style.margin = "0";
+    p.textContent = "Never logged. A hole in the data, not a zero-spend day.";
+    card.append(p);
+  } else {
+    rows.forEach((t) => {
+      const row = el("div", "row");
+      const nm = el("span", "nm"); nm.textContent = t.item;
+      const meta = el("span", "meta");
+      meta.textContent = t.meal.slice(0,3) + (t.ctx !== "solo" ? " · " + t.ctx : "");
+      const lead = el("span", "lead");
+      const amt = el("span", "amt num"); amt.textContent = baht(t.amount);
+      row.append(nm, meta, lead, amt);
+      row.onclick = () => editTx(t);
+      card.append(row);
+    });
+    const tr = el("div", "tot-row");
+    const l = el("span"); l.textContent = "Total";
+    const a = el("span", "amt num");
+    a.textContent = baht(rows.reduce((s, t) => s + t.amount, 0));
+    tr.append(l, a); card.append(tr);
+  }
+  box.append(card);
+  box.scrollIntoView({ behavior:"smooth", block:"nearest" });
+}
+
+/* -------------------------------------------------------------- WISHLIST  */
+/* Treats = snacks + drinks. This is the lever the analysis found: ~1,400/month,
+   the cheapest saving available in lifestyle terms. */
+function treatsPerMonth() {
+  const tx = live(S.tx);
+  const byDay = {};
+  tx.forEach((t) => {
+    if (t.cat === "snack" || t.cat === "drink")
+      byDay[t.date] = (byDay[t.date] || 0) + t.amount;
+  });
+  const days = new Set(tx.map((t) => t.date)).size;
+  if (!days) return 0;
+  return (Object.values(byDay).reduce((a, b) => a + b, 0) / days) * 30;
+}
+
+function renderWish() {
+  const st = S.settings;
+  $("#potV").textContent = nf(st.pot);
+  $("#potRate").textContent = st.rate > 0
+    ? `Adding ${baht(st.rate)} a month.`
+    : "Set a monthly amount to see when each wish lands.";
+
+  const treats = treatsPerMonth();
+  const boost = treats / 2;
+  $("#nudge").innerHTML = treats > 50
+    ? `Your snacks and drinks are running about <b class="num">${baht(treats)}</b> a
+       month. Redirecting half of that — one treat a day instead of two — would add
+       <b class="num">${baht(boost)}</b> a month to this fund.`
+    : `Log a few days and this will show you exactly how much your snack habit is
+       costing the wishlist.`;
+
+  const box = $("#wishes"); box.innerHTML = "";
+  if (!live(S.wishes).length) {
+    const e = el("div", "empty");
+    e.textContent = "Nothing yet. What are you actually saving for?";
+    box.append(e);
+    return;
+  }
+
+  const sorted = live(S.wishes).sort((a, b) => a.price - b.price);
+  sorted.forEach((w) => {
+    const it = el("div", "wish-item");
+    const top = el("div", "wish-top");
+    const nm = el("span", "nm"); nm.textContent = w.name;
+    const pr = el("span", "pr num"); pr.textContent = baht(w.price);
+    top.append(nm, pr);
+
+    const pct = Math.min(100, (st.pot / w.price) * 100);
+    const track = el("div", "track");
+    const fill = el("div", "fill" + (pct >= 100 ? " full" : ""));
+    fill.style.width = pct + "%";
+    track.append(fill);
+
+    const eta = el("div", "eta");
+    if (st.pot >= w.price) {
+      eta.classList.add("ready");
+      eta.textContent = "Ready — you can buy this now.";
+    } else if (st.rate > 0) {
+      const need = w.price - st.pot;
+      const m = Math.ceil(need / st.rate);
+      const mB = boost > 0 ? Math.ceil(need / (st.rate + boost)) : m;
+      eta.textContent =
+        `${baht(need)} to go · about ${m} month${m === 1 ? "" : "s"}` +
+        (mB < m ? ` — or ${mB} if you halve the treats.` : ".");
+    } else {
+      eta.textContent = `${baht(w.price - st.pot)} to go.`;
+    }
+
+    it.append(top, track, eta);
+    it.onclick = () => {
+      ask(w.name, [
+        { k:"name",  label:"Name",      value:w.name },
+        { k:"price", label:"Price (฿)", type:"number", value:w.price },
+      ], (o) => {
+        if (!o.name) { w.d = true; toast("Removed"); }
+        else { w.name = o.name; w.price = o.price; }
+        touch(w); save(); renderWish(); queueSync();
+      });
+    };
+    box.append(it);
+  });
+}
+
+/* ----------------------------------------------------------------- BILLS  */
+function renderBills() {
+  const box = $("#bills"); box.innerHTML = "";
+  let total = 0;
+
+  if (!live(S.bills).length) {
+    const e = el("div", "empty");
+    e.innerHTML = "No bills yet.<br>Add your rent, phone and subscriptions — or " +
+                  "restore your backup on the Data tab.";
+    box.append(e);
+    return;
+  }
+
+  live(S.bills).forEach((b) => {
+    const perMonth = b.cadence === "annual" ? b.amount / 12 : b.amount;
+    if (b.on) total += perMonth;
+
+    const row = el("div", "bill" + (b.on ? "" : " off"));
+    const sw = el("button", "sw");
+    sw.type = "button";
+    sw.setAttribute("aria-pressed", b.on);
+    sw.setAttribute("aria-label", (b.on ? "Disable " : "Enable ") + b.name);
+    sw.onclick = (e) => {
+      e.stopPropagation();
+      b.on = !b.on; touch(b); save(); renderBills(); queueSync();
+    };
+
+    const nm = el("div", "nm"); nm.textContent = b.name;
+    const cad = el("span", "cad");
+    cad.textContent = b.cadence === "annual" ? "yearly" : "monthly";
+    const amt = el("span", "amt num"); amt.textContent = baht(b.amount);
+
+    row.append(sw, nm, cad, amt);
+    row.onclick = () => {
+      ask(b.name, [
+        { k:"name",   label:"Name",              value:b.name },
+        { k:"amount", label:"Amount (฿)",        type:"number", value:b.amount },
+        { k:"cad",    label:"monthly or annual", value:b.cadence },
+      ], (o) => {
+        if (!o.name) { b.d = true; toast("Removed"); }
+        else {
+          b.name = o.name; b.amount = o.amount;
+          b.cadence = o.cad === "annual" ? "annual" : "monthly";
+        }
+        touch(b); save(); renderBills(); queueSync();
+      });
+    };
+    box.append(row);
+  });
+
+  const tr = el("div", "tot-row");
+  const l = el("span"); l.textContent = "Fixed / month";
+  const a = el("span", "amt num"); a.textContent = baht(total);
+  tr.append(l, a); box.append(tr);
+}
+
+/* ------------------------------------------------------------------ DATA  */
+function csvEscape(v) {
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportCsv() {
+  const rows = [["date","meal","item","amount","context","wishlist"]];
+  live(S.tx).sort((a, b) => a.ts - b.ts).forEach((t) =>
+    rows.push([t.date, t.meal, t.item, t.amount, t.ctx, t.wish ? "yes" : ""]));
+  /* BOM so Excel and pandas both read the Thai correctly. */
+  download("expenses.csv",
+    "﻿" + rows.map((r) => r.map(csvEscape).join(",")).join("\n"),
+    "text/csv;charset=utf-8");
+  toast("expenses.csv saved");
+}
+
+function exportBills() {
+  const rows = [["name","amount","cadence","active"]];
+  live(S.bills).forEach((b) =>
+    rows.push([b.name, b.amount, b.cadence, b.on ? "yes" : "no"]));
+  download("recurring.csv",
+    "﻿" + rows.map((r) => r.map(csvEscape).join(",")).join("\n"),
+    "text/csv;charset=utf-8");
+  toast("recurring.csv saved");
+}
+
+/* ------------------------------------------------------------------ SYNC  */
+/* Local-first. Every entry is saved to this device immediately and rendered; the
+   Sheet is caught up afterwards. That ordering is deliberate — you log lunch at a
+   food stall on bad 4G, and the app must never make you wait for a network call
+   to see your own entry. If the sync fails, the record just stays dirty and goes
+   up on the next attempt.
+   Conflicts (same record edited on phone and laptop) resolve last-write-wins on
+   the `u` timestamp, in both directions. */
+
+const KINDS = {
+  /* local field names -> the Sheet's column names */
+  expenses: { arr: () => S.tx, map: (t) => ({
+      id:t.id, date:t.date, meal:t.meal, item:t.item, amount:t.amount,
+      category:t.cat, context:t.ctx, wishlist:t.wish ? "yes" : "",
+      updated:t.u || 0, deleted:t.d ? "yes" : "" }),
+    back: (r) => ({
+      id:r.id, date:String(r.date).slice(0,10), meal:r.meal, item:r.item,
+      amount:Number(r.amount), cat:r.category, ctx:r.context || "solo",
+      wish:r.wishlist === "yes", u:Number(r.updated) || 0,
+      d:r.deleted === "yes", ts:Number(r.updated) || 0 }) },
+
+  bills: { arr: () => S.bills, map: (b) => ({
+      id:b.id, name:b.name, amount:b.amount, cadence:b.cadence,
+      active:b.on ? "yes" : "", updated:b.u || 0, deleted:b.d ? "yes" : "" }),
+    back: (r) => ({
+      id:r.id, name:r.name, amount:Number(r.amount), cadence:r.cadence,
+      on:r.active === "yes", u:Number(r.updated) || 0, d:r.deleted === "yes" }) },
+
+  wishes: { arr: () => S.wishes, map: (w) => ({
+      id:w.id, name:w.name, price:w.price, updated:w.u || 0,
+      deleted:w.d ? "yes" : "" }),
+    back: (r) => ({
+      id:r.id, name:r.name, price:Number(r.price), u:Number(r.updated) || 0,
+      d:r.deleted === "yes" }) },
+};
+
+let syncing = false, syncTimer = null;
+
+function setSyncStatus(msg, tone) {
+  const e = $("#syncStatus");
+  if (!e) return;
+  e.textContent = msg;
+  e.style.color = tone === "bad" ? "var(--accent)"
+                : tone === "good" ? "var(--good)" : "var(--ink-3)";
+}
+
+/* Debounced: tapping five tiles in a row is one sync, not five. */
+function queueSync() {
+  if (!S.sync.url) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncNow(true), 1500);
+}
+
+async function syncNow(quiet, full) {
+  if (!S.sync.url || !S.sync.token) {
+    if (!quiet) toast("Set up sync first");
+    return;
+  }
+  if (syncing) return;
+  if (!navigator.onLine) { setSyncStatus("Offline — will sync later"); return; }
+
+  syncing = true;
+  setSyncStatus("Syncing…");
+  const since = full ? 0 : (S.sync.last || 0);   // server time, from the last reply
+
+  /* Snapshot what we're sending, with the `u` each record had at send time. If you
+     edit a record while the request is in flight, its `u` changes and it stays
+     dirty for the next round rather than being wrongly marked as saved. */
+  const push = {}, sent = {};
+  for (const [kind, k] of Object.entries(KINDS)) {
+    const dirty = k.arr().filter((r) => r.dirty);
+    sent[kind] = dirty.map((r) => ({ r, u: r.u }));
+    push[kind] = dirty.map(k.map);
+  }
+
+  try {
+    /* text/plain avoids a CORS preflight, which Apps Script cannot answer. */
+    const res = await fetch(S.sync.url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ token: S.sync.token, since, push }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    let pulled = 0;
+    for (const [kind, k] of Object.entries(KINDS)) {
+      const arr = k.arr();
+      const byId = new Map(arr.map((r) => [String(r.id), r]));
+      (data.pull[kind] || []).forEach((raw) => {
+        const inc = k.back(raw);
+        const cur = byId.get(String(inc.id));
+        if (!cur) { arr.push(inc); pulled++; }
+        else if ((inc.u || 0) > (cur.u || 0)) {
+          Object.assign(cur, inc);                // remote is newer
+          delete cur.dirty;
+          pulled++;
+        }
+      });
+      // Everything we sent is now on the Sheet — unless it changed mid-flight.
+      sent[kind].forEach(({ r, u }) => { if (r.u === u) delete r.dirty; });
+    }
+
+    S.sync.last = data.now;      // the server's cursor, never our own clock
+    save();
+    render();
+    if ($("#p-bills").classList.contains("on")) renderBills();
+    setSyncStatus(`Synced ${new Date().toLocaleTimeString()}`, "good");
+    if (!quiet) toast(pulled ? `Synced · ${pulled} update(s) pulled` : "Synced");
+  } catch (err) {
+    setSyncStatus("Sync failed — your data is safe on this device", "bad");
+    if (!quiet) toast("Sync failed. Check the URL and secret.");
+  } finally {
+    syncing = false;
+  }
+}
+
+window.addEventListener("online", () => queueSync());
+
+/* ------------------------------------------------------------------- app  */
+const TABS = [
+  { k:"log",   l:"Log",   d:"M12 5v14M5 12h14" },
+  { k:"days",  l:"Days",  d:"M3 9h18M7 3v3m10-3v3M4 5h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z" },
+  { k:"wish",  l:"Wish",  d:"M12 4l2.4 5.1 5.6.8-4 4 .9 5.6-4.9-2.7-4.9 2.7.9-5.6-4-4 5.6-.8z" },
+  { k:"bills", l:"Bills", d:"M4 4h16v16l-2.7-1.6L14.7 20 12 18.4 9.3 20l-2.6-1.6L4 20zM8 9h8M8 13h5" },
+  { k:"data",  l:"Data",  d:"M12 3v12m0 0l-4-4m4 4l4-4M4 19h16" },
+];
+
+function renderTabs(active) {
+  const t = $("#tabs"); t.innerHTML = "";
+  TABS.forEach((tab) => {
+    const b = el("button", "tab");
+    b.type = "button";
+    b.setAttribute("aria-selected", tab.k === active);
+    b.innerHTML =
+      `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${tab.d}"/></svg>` +
+      `<span>${tab.l}</span>`;
+    b.onclick = () => go(tab.k);
+    t.append(b);
+  });
+}
+
+function go(k) {
+  document.querySelectorAll(".panel").forEach((p) => p.classList.remove("on"));
+  $("#p-" + k).classList.add("on");
+  renderTabs(k);
+  if (k === "days") renderCal();
+  if (k === "wish") renderWish();
+  if (k === "bills") renderBills();
+  window.scrollTo({ top: 0 });
+}
+
+function render() {
+  renderBars();
+  renderTags();
+  renderReceipt();
+  if ($("#p-days").classList.contains("on")) renderCal();
+  if ($("#p-wish").classList.contains("on")) renderWish();
+}
+
+/* wiring */
+/* The add form. Ticking "Save to favourites" turns the item into a one-tap tile,
+   which is how the favourites list gets built — from what you actually buy. */
+$("#addCustom").onclick = () => {
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = "Add an expense"; f.append(h);
+
+  const mk = (label, type) => {
+    const w = el("div", "field");
+    const l = el("label"); l.textContent = label;
+    const i = el("input");
+    i.type = type || "text";
+    if (type === "number") i.inputMode = "numeric";
+    w.append(l, i); f.append(w);
+    return i;
+  };
+  const name = mk("What was it?");
+  const price = mk("Amount (฿)", "number");
+
+  const cw = el("div", "field");
+  const cl = el("label"); cl.textContent = "Type";
+  const cbar = el("div", "bar"); cbar.style.margin = "0";
+  let cat = null;                        // null = infer from the name
+  [["main","Meal"],["snack","Snack"],["drink","Drink"],["transport","Transport"]]
+    .forEach(([k, lbl]) => {
+      const c = el("button", "chip");
+      c.type = "button"; c.textContent = lbl;
+      c.setAttribute("aria-pressed", "false");
+      c.onclick = () => {
+        cat = k;
+        cbar.querySelectorAll(".chip").forEach((x) =>
+          x.setAttribute("aria-pressed", x === c));
+      };
+      cbar.append(c);
+    });
+  cw.append(cl, cbar); f.append(cw);
+
+  const fav = el("label", "check");
+  const box = el("input");
+  box.type = "checkbox"; box.id = "favChk";
+  const txt = el("span");
+  txt.innerHTML = "<b>Save to favourites</b><br>" +
+    "<span class='hint' style='margin:0'>Adds a one-tap tile for next time.</span>";
+  fav.append(box, txt); f.append(fav);
+
+  const row = el("div", "inline");
+  const cancel = el("button", "btn ghost");
+  cancel.type = "button"; cancel.textContent = "Cancel";
+  cancel.onclick = () => dlg.close();
+  const ok = el("button", "btn primary");
+  ok.type = "submit"; ok.textContent = "Add";
+  row.append(cancel, ok); f.append(row);
+
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const n = name.value.trim();
+    const p = Number(price.value);
+    if (!n || !(p > 0)) return;
+    const c = cat || guessCat(n);
+    if (box.checked) saveFav(n, p, c);
+    dlg.close();
+    addTx(n, p, c);
+    renderTags();
+  };
+  dlg.showModal();
+  setTimeout(() => name.focus(), 50);
+};
+
+$("#addWish").onclick = () => ask("Add a wish", [
+  { k:"name",  label:"What do you want?" },
+  { k:"price", label:"Price (฿)", type:"number" },
+], (o) => {
+  if (!o.name || !(o.price > 0)) return;
+  S.wishes.push(touch({ id: uid(), name: o.name, price: o.price, d: false }));
+  save(); renderWish(); queueSync(); toast("Added");
+});
+
+$("#addBill").onclick = () => ask("Add a bill", [
+  { k:"name",   label:"Name" },
+  { k:"amount", label:"Amount (฿)", type:"number" },
+  { k:"cad",    label:"monthly or annual", value:"monthly" },
+], (o) => {
+  if (!o.name || !(o.amount > 0)) return;
+  S.bills.push(touch({ id: uid(), name:o.name, amount:o.amount,
+                 cadence: o.cad === "annual" ? "annual" : "monthly",
+                 on:true, d:false }));
+  save(); renderBills(); queueSync(); toast("Added");
+});
+
+$("#editPot").onclick = () => ask("Wishlist fund", [
+  { k:"pot", label:"How much have you saved? (฿)", type:"number",
+    value:S.settings.pot },
+], (o) => { S.settings.pot = Math.max(0, o.pot); save(); renderWish(); });
+
+$("#editRate").onclick = () => ask("Monthly amount", [
+  { k:"rate", label:"Adding how much each month? (฿)", type:"number",
+    value:S.settings.rate },
+], (o) => { S.settings.rate = Math.max(0, o.rate); save(); renderWish(); });
+
+$("#prevM").onclick = () => { calM.setMonth(calM.getMonth() - 1); renderCal(); };
+$("#nextM").onclick = () => { calM.setMonth(calM.getMonth() + 1); renderCal(); };
+
+$("#expCsv").onclick = exportCsv;
+$("#expBills").onclick = exportBills;
+$("#expJson").onclick = () => {
+  download("spend-backup-" + TODAY() + ".json",
+    JSON.stringify(S, null, 2), "application/json");
+  toast("Backup saved");
+};
+$("#impJson").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!Array.isArray(d.tx)) throw new Error("not a backup");
+      const keepSync = S.sync;          // don't lose the connection on restore
+      const keepQuick = S.quick;
+      S = Object.assign({}, DEFAULT, d);
+      S.settings = Object.assign({}, DEFAULT.settings, d.settings || {});
+      S.ui = Object.assign({}, DEFAULT.ui, d.ui || {});
+      S.sync = Object.assign({}, keepSync, d.sync || {});
+      /* A backup without favourites (my-data.json, or one made before this
+         feature) must not silently wipe the ones you've built up. */
+      S.quick = (d.quick && d.quick.length) ? d.quick : keepQuick;
+      normalize(true);          // a restored backup must be re-uploaded to the Sheet
+      save(); render(); go("log"); queueSync();
+      toast(`Restored ${live(S.tx).length} entries`);
+    } catch {
+      toast("That file isn't a backup");
+    }
+  };
+  r.readAsText(f);
+};
+
+$("#saveSet").onclick = () => {
+  S.settings.take = Number($("#setTake").value) || S.settings.take;
+  S.settings.save = Number($("#setSave").value) || S.settings.save;
+  save(); toast("Saved");
+};
+
+$("#wipe").onclick = () => ask(
+  "Erase everything?",
+  [{ k:"c", label:'Type ERASE to confirm' }],
+  (o) => {
+    if (o.c !== "ERASE") return toast("Not erased");
+    S = JSON.parse(JSON.stringify(DEFAULT));
+    save(); render(); go("log"); toast("Erased");
+  });
+
+if (!store.ok) {
+  $("#storeWarn").innerHTML =
+    `<div class="banner"><b>This browser won't save data here.</b> Your entries will
+     vanish when you close the tab. Open the page in your normal browser, or export a
+     backup before you leave.</div>`;
+}
+
+$("#syncSave").onclick = () => {
+  S.sync.url = $("#syncUrl").value.trim();
+  S.sync.token = $("#syncTok").value.trim();
+  save();
+  setSyncStatus(S.sync.url ? "Connected. Not synced yet." : "Not connected.");
+  toast("Sync settings saved");
+};
+$("#syncGo").onclick = () => syncNow(false);
+$("#syncFull").onclick = () => ask(
+  "Pull everything?",
+  [{ k:"c", label:'This re-reads the whole Sheet. Type PULL to confirm.' }],
+  (o) => { if (o.c === "PULL") syncNow(false, true); else toast("Cancelled"); });
+
+$("#setTake").value = S.settings.take || "";
+$("#setSave").value = S.settings.save || "";
+$("#syncUrl").value = S.sync.url;
+$("#syncTok").value = S.sync.token;
+if (S.sync.url) setSyncStatus(S.sync.last
+  ? `Last synced ${new Date(S.sync.last).toLocaleString()}`
+  : "Connected. Not synced yet.");
+
+renderTabs("log");
+render();
+
+/* Catch up on open, and whenever you come back to the app. */
+if (S.sync.url) syncNow(true);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) queueSync();
+});
+
+/* Service worker: caches the app so it opens instantly and works with no signal —
+   which is the whole point of logging lunch from a food stall. */
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  window.addEventListener("load", () =>
+    navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
