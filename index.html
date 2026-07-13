@@ -1,3 +1,8 @@
+<!-- Must be first, and within the first 1024 bytes. Without it the page decodes as
+     Latin-1 unless the server volunteers a charset: every Thai item name and every ฿
+     turns to mojibake. It only looks fine today because GitHub Pages sends the header
+     for us — the file should not depend on where it is served from. -->
+<meta charset="utf-8">
 <title>Spend — expense tracker</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#D8471F">
@@ -313,6 +318,10 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
             style="width:100%; margin-top:10px; border-style:dashed;">
       + Add an expense
     </button>
+    <button class="btn ghost" id="buyWish"
+            style="width:100%; margin-top:8px; border-style:dashed; display:none;">
+      ★ Bought something off the wishlist
+    </button>
     <p class="sub" id="favHint" style="text-align:center; margin-top:8px;"></p>
 
     <h2>Today</h2>
@@ -359,6 +368,9 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
     <div class="card" id="wishes"></div>
     <button class="btn ghost" id="addWish"
             style="width:100%; border-style:dashed;">+ Add a wish</button>
+
+    <h2 id="gotHead" style="display:none;">Already got</h2>
+    <div class="card" id="gotWishes" style="display:none;"></div>
   </section>
 
   <!-- ===================== BILLS ===================== -->
@@ -666,6 +678,107 @@ function catPicker(selected) {
   return { node: w, get: () => cur };
 }
 
+/* Why you paid less than the sticker price. `gov` and `promo` are NOT the same fact
+   and must not be merged: a promotion is a one-off you were lucky to catch, but the
+   government campaign is a subsidy on ordinary daily spending that WILL end — and on
+   that day your outflow jumps by whatever it was covering. Keeping them apart is the
+   only way that number can ever be computed. */
+const WHYS = [
+  ["gov",   "Gov co-pay"],
+  ["promo", "Promo / sale"],
+  ["other", "Something else"],
+];
+
+/* Paid vs full price.
+ *
+ * `amount` is ALWAYS the money that actually left your pocket. It is the only number
+ * that reconciles against the bank, and the whole analysis is a reconciliation — log
+ * the ฿100 menu price of a meal the state co-paid ฿60 of, and your logged spend is
+ * inflated by money that was never yours.
+ *
+ * `full` is the undiscounted price, stored only when it differs. That gap is the
+ * point: it is what your lifestyle really costs, and what comes back the day the
+ * subsidy or the promotion stops. Log only one of the two numbers and you can never
+ * recover the other. */
+function pricePicker(paid, full, why) {
+  const wrap = el("div");
+
+  const pw = el("div", "field");
+  const pl = el("label"); pl.textContent = "Paid (฿)";
+  const pi = el("input");
+  pi.type = "number"; pi.inputMode = "numeric";
+  pi.value = paid ?? "";
+  pw.append(pl, pi);
+
+  const fw = el("div", "field");
+  const fl = el("label"); fl.textContent = "Full price (฿)";
+  const fi = el("input");
+  fi.type = "number"; fi.inputMode = "numeric";
+  fi.value = full ?? "";
+  const fh = el("p", "hint");
+  fh.style.margin = "5px 0 0";
+  fh.textContent = "Only if you paid less than the sticker price — a government " +
+                   "co-pay, or a promotion. Leave it blank otherwise.";
+  fw.append(fl, fi, fh);
+
+  const ww = el("div", "field");
+  const wl = el("label"); wl.textContent = "Why was it cheaper?";
+  const bar = el("div", "bar wrap"); bar.style.margin = "0";
+  let cur = why || "";
+  WHYS.forEach(([k, label]) => {
+    const c = el("button", "chip");
+    c.type = "button";
+    c.textContent = label;
+    c.setAttribute("aria-pressed", k === cur);
+    c.onclick = () => {
+      cur = k;
+      bar.querySelectorAll(".chip").forEach((x) =>
+        x.setAttribute("aria-pressed", x === c));
+    };
+    bar.append(c);
+  });
+  ww.append(wl, bar);
+
+  /* There is no reason to give until there is a discount to explain, so keep it out
+     of the way until then — the common case must stay a two-field form. */
+  const reveal = () => { ww.style.display = Number(fi.value) > 0 ? "" : "none"; };
+  fi.addEventListener("input", reveal);
+  reveal();
+
+  wrap.append(pw, fw, ww);
+  return {
+    node: wrap,
+    paidInput: pi,
+    get: () => {
+      const amount = Number(pi.value);
+      let f = Number(fi.value) || 0;
+      /* A "full price" at or below what you paid is not a discount. Drop it rather
+         than keep a number that would quietly overstate what you saved. */
+      if (!(f > amount)) f = 0;
+      return { amount, full: f, why: f ? (cur || "other") : "" };
+    },
+  };
+}
+
+/* A yes/no sheet. `ask` needs fields; sometimes there is only a decision. */
+function confirmSheet(title, msg, okLabel, onOk) {
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = title; f.append(h);
+  const p = el("p", "hint"); p.textContent = msg; f.append(p);
+
+  const row = el("div", "inline");
+  const cancel = el("button", "btn ghost");
+  cancel.type = "button"; cancel.textContent = "Cancel";
+  cancel.onclick = () => dlg.close();
+  const ok = el("button", "btn primary");
+  ok.type = "submit"; ok.textContent = okLabel;
+  row.append(cancel, ok); f.append(row);
+
+  f.onsubmit = (e) => { e.preventDefault(); dlg.close(); onOk(); };
+  dlg.showModal();
+}
+
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;
@@ -725,18 +838,26 @@ function ask(title, fields, onOk) {
 }
 
 /* ------------------------------------------------------------------- LOG  */
-function addTx(name, amount, cat) {
-  if (!name || !(amount > 0)) return;
-  S.tx.push(touch({
+/* `amount` is what you paid. `x.full` (optional) is the sticker price when you paid
+   less than it. Tapping a favourite passes neither — the one-tap path stays one tap. */
+function addTx(name, amount, cat, x) {
+  if (!name || !(amount > 0)) return null;
+  const t = touch({
     id: uid(), date: TODAY(), ts: Date.now(), meal,
     item: name, amount, cat: cat || DEFAULT_CAT, ctx: S.ui.ctx,
-    wish: false, d: false,
-  }));
+    full: (x && x.full) || 0,
+    why: (x && x.why) || "",
+    wish: !!(x && x.wish),
+    wishId: (x && x.wishId) || "",
+    d: false,
+  });
+  S.tx.push(t);
   save();
   render();
   queueSync();
   if (navigator.vibrate) navigator.vibrate(12);
   toast(`${name} · ${baht(amount)}`);
+  return t;
 }
 
 function renderBars() {
@@ -807,6 +928,9 @@ function renderTags() {
   $("#favHint").textContent = S.quick.length
     ? "Tap a tile to log it. Hold one to rename, reprice or delete it."
     : "";
+
+  /* Only offer this when there is actually something on the list to buy. */
+  $("#buyWish").style.display = openWishes().length ? "" : "none";
 }
 
 /* Edit a favourite: rename, reprice, recategorise, or delete it. Also lets you
@@ -894,7 +1018,11 @@ function renderReceipt() {
     const row = el("div", "row" + (t.wish ? " wish" : ""));
     const nm = el("span", "nm"); nm.textContent = t.item;
     const meta = el("span", "meta");
-    meta.textContent = t.meal.slice(0,3) + (t.ctx !== "solo" ? " · " + t.ctx : "");
+    const bits = [t.meal.slice(0, 3)];
+    if (t.ctx !== "solo") bits.push(t.ctx);
+    /* Show the sticker price, not the saving — the saving is the part that goes away. */
+    if (t.full > t.amount) bits.push(`฿${nf(t.full)} full`);
+    meta.textContent = bits.join(" · ");
     const lead = el("span", "lead");
     const amt = el("span", "amt num"); amt.textContent = baht(t.amount);
     row.append(nm, meta, lead, amt);
@@ -921,10 +1049,8 @@ function editTx(t) {
   f.innerHTML = "";
   const h = el("h3"); h.textContent = t.item; f.append(h);
 
-  const w = el("div", "field");
-  const l = el("label"); l.textContent = "Amount (฿)";
-  const i = el("input"); i.type = "number"; i.inputMode = "numeric"; i.value = t.amount;
-  w.append(l, i); f.append(w);
+  const price = pricePicker(t.amount, t.full || "", t.why);
+  f.append(price.node);
 
   const pick = catPicker(t.cat);
   f.append(pick.node);
@@ -956,7 +1082,10 @@ function editTx(t) {
 
   f.onsubmit = (e) => {
     e.preventDefault();
-    t.amount = Number(i.value) || t.amount;
+    const p = price.get();
+    if (p.amount > 0) t.amount = p.amount;
+    t.full = p.full;
+    t.why = p.why;
     t.cat = pick.get();
     t.wish = wish;
     touch(t);
@@ -1087,6 +1216,11 @@ function treatsPerMonth() {
   return (Object.values(byDay).reduce((a, b) => a + b, 0) / days) * 30;
 }
 
+/* A bought wish is kept, not deleted — the list of things you saved for and actually
+   got is the evidence that any of this works. It just stops counting as a target. */
+const openWishes = () => live(S.wishes).filter((w) => !w.bought);
+const gotWishes = () => live(S.wishes).filter((w) => w.bought);
+
 function renderWish() {
   const st = S.settings;
   $("#potV").textContent = nf(st.pot);
@@ -1103,15 +1237,17 @@ function renderWish() {
     : `Log a few days and this will show you exactly how much your snack habit is
        costing the wishlist.`;
 
+  renderGot();
+
   const box = $("#wishes"); box.innerHTML = "";
-  if (!live(S.wishes).length) {
+  if (!openWishes().length) {
     const e = el("div", "empty");
     e.textContent = "Nothing yet. What are you actually saving for?";
     box.append(e);
     return;
   }
 
-  const sorted = live(S.wishes).sort((a, b) => a.price - b.price);
+  const sorted = openWishes().sort((a, b) => a.price - b.price);
   sorted.forEach((w) => {
     const it = el("div", "wish-item");
     const top = el("div", "wish-top");
@@ -1153,6 +1289,151 @@ function renderWish() {
     };
     box.append(it);
   });
+}
+
+/* The things you saved for and got. Tap one to undo it, in full — a mis-tap here
+   would otherwise leave a logged expense and a drained fund with no way back. */
+function renderGot() {
+  const got = gotWishes().sort((a, b) => (b.bdate || "").localeCompare(a.bdate || ""));
+  const box = $("#gotWishes"), head = $("#gotHead");
+  box.innerHTML = "";
+  box.style.display = head.style.display = got.length ? "" : "none";
+
+  got.forEach((w) => {
+    const it = el("div", "wish-item");
+    const top = el("div", "wish-top");
+    const nm = el("span", "nm"); nm.textContent = w.name;
+    const pr = el("span", "pr num"); pr.textContent = baht(w.paid || 0);
+    top.append(nm, pr);
+
+    const eta = el("div", "eta");
+    const under = (w.price || 0) - (w.paid || 0);
+    eta.textContent =
+      (w.bdate ? w.bdate : "Bought") +
+      (under > 0 ? ` · ${baht(under)} under the ${baht(w.price)} you listed.` : ".");
+
+    it.append(top, eta);
+    it.onclick = () => confirmSheet(
+      "Undo this?",
+      `Puts ${w.name} back on the wishlist, deletes the ${baht(w.paid || 0)} expense` +
+      (w.fromPot ? ", and returns it to the fund." : "."),
+      "Undo",
+      () => {
+        const t = S.tx.find((x) => x.id === w.txId && !x.d);
+        if (t) { t.d = true; touch(t); }
+        if (w.fromPot) {
+          S.settings.pot += w.paid || 0;
+          touchMeta("settings");
+        }
+        w.bought = false; w.paid = 0; w.bdate = ""; w.txId = ""; w.fromPot = false;
+        touch(w); save(); render(); queueSync();
+        toast("Back on the wishlist");
+      });
+    box.append(it);
+  });
+}
+
+/* Buying a wish is four facts at once: an expense happened, the fund went down, the
+   wish is done, and it was often on promo. Four separate manual steps is exactly how
+   they end up disagreeing with each other — so record them together, once. */
+function pickWish() {
+  const list = openWishes().sort((a, b) => a.price - b.price);
+  if (!list.length) { toast("Nothing on the wishlist"); return; }
+
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = "Which one did you buy?"; f.append(h);
+
+  list.forEach((w) => {
+    const b = el("button", "btn ghost");
+    b.type = "button";
+    b.style.width = "100%";
+    b.style.marginBottom = "8px";
+    b.style.display = "flex";
+    b.style.justifyContent = "space-between";
+    const n = el("span"); n.textContent = w.name;
+    const p = el("span", "num"); p.textContent = baht(w.price);
+    b.append(n, p);
+    /* Let the sheet finish closing before the next one opens — two <dialog>s racing
+       leaves the backdrop stuck on some Android builds. */
+    b.onclick = () => { dlg.close(); setTimeout(() => buyWish(w), 80); };
+    f.append(b);
+  });
+
+  const cancel = el("button", "btn ghost");
+  cancel.type = "button"; cancel.textContent = "Cancel";
+  cancel.style.width = "100%";
+  cancel.style.marginTop = "6px";
+  cancel.onclick = () => dlg.close();
+  f.append(cancel);
+
+  f.onsubmit = (e) => e.preventDefault();
+  dlg.showModal();
+}
+
+function buyWish(w) {
+  const dlg = $("#sheet"), f = $("#sheetForm");
+  f.innerHTML = "";
+  const h = el("h3"); h.textContent = w.name; f.append(h);
+
+  const hint = el("p", "hint");
+  hint.textContent = `You listed this at ${baht(w.price)}. Change "Paid" to what it ` +
+                     `actually cost — if you caught it on promo, the difference is ` +
+                     `the whole reason you waited.`;
+  f.append(hint);
+
+  /* Both fields start at the listed price: pay full and they cancel out (no discount
+     recorded), pay less and the listed price is already sitting there as the full
+     price. The common case and the interesting case are both one edit. */
+  const price = pricePicker(w.price, w.price, "promo");
+  f.append(price.node);
+
+  const pick = catPicker("shopping");
+  f.append(pick.node);
+
+  const potChk = el("label", "check");
+  const cb = el("input"); cb.type = "checkbox"; cb.checked = true;
+  const txt = el("span");
+  txt.innerHTML = "<b>Take it out of the fund</b><br>" +
+    "<span class='hint' style='margin:0'>Untick if you paid for this from " +
+    "somewhere else.</span>";
+  potChk.append(cb, txt); f.append(potChk);
+
+  const row = el("div", "inline");
+  const cancel = el("button", "btn ghost");
+  cancel.type = "button"; cancel.textContent = "Cancel";
+  cancel.onclick = () => dlg.close();
+  const ok = el("button", "btn primary");
+  ok.type = "submit"; ok.textContent = "I bought it";
+  row.append(cancel, ok); f.append(row);
+
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const p = price.get();
+    if (!(p.amount > 0)) return;
+    dlg.close();
+
+    const t = addTx(w.name, p.amount, pick.get(),
+                    { full: p.full, why: p.why, wish: true, wishId: w.id });
+
+    w.bought = true;
+    w.paid = p.amount;
+    w.bdate = TODAY();
+    w.txId = t ? t.id : "";
+    w.fromPot = cb.checked;
+    touch(w);
+
+    if (cb.checked) {
+      S.settings.pot = Math.max(0, S.settings.pot - p.amount);
+      touchMeta("settings");
+    }
+
+    save(); render(); queueSync();
+    toast(p.full > p.amount
+      ? `Got it — ${baht(p.full - p.amount)} under list`
+      : "Got it");
+  };
+  dlg.showModal();
 }
 
 /* ----------------------------------------------------------------- BILLS  */
@@ -1427,7 +1708,7 @@ async function renderStorage() {
     [live(S.tx).length, "expense"],
     [live(S.bills).length, "bill"],
     [live(S.pays).length, "payment"],
-    [live(S.wishes).length, "wish"],
+    [openWishes().length, "wish"],
   ].filter(([n]) => n > 0)
    .map(([n, w]) => `${n} ${w}${n === 1 ? "" : "s"}`)
    .join(" · ") || "nothing logged yet";
@@ -1496,9 +1777,15 @@ function csvEscape(v) {
 }
 
 function exportCsv() {
-  const rows = [["date","meal","item","amount","context","wishlist"]];
+  /* `amount` is what you paid — the column the analysis sums, and the one that has to
+     agree with the bank. `full_price` is the sticker price when you paid less; the
+     difference between the two columns is what a subsidy is worth to you, and what
+     comes back when it ends. */
+  const rows = [["date","meal","item","amount","context","wishlist",
+                 "full_price","discount"]];
   live(S.tx).sort((a, b) => a.ts - b.ts).forEach((t) =>
-    rows.push([t.date, t.meal, t.item, t.amount, t.ctx, t.wish ? "yes" : ""]));
+    rows.push([t.date, t.meal, t.item, t.amount, t.ctx, t.wish ? "yes" : "",
+               t.full > t.amount ? t.full : "", t.full > t.amount ? (t.why || "") : ""]));
   /* BOM so Excel and pandas both read the Thai correctly. */
   download("expenses.csv",
     "﻿" + rows.map((r) => r.map(csvEscape).join(",")).join("\n"),
@@ -1540,11 +1827,14 @@ const KINDS = {
   expenses: { arr: () => S.tx, map: (t) => ({
       id:t.id, date:t.date, meal:t.meal, item:t.item, amount:t.amount,
       category:t.cat, context:t.ctx, wishlist:t.wish ? "yes" : "",
+      full:t.full > t.amount ? t.full : "", discount:t.full > t.amount ? (t.why || "") : "",
+      wishId:t.wishId || "",
       updated:t.u || 0, deleted:t.d ? "yes" : "" }),
     back: (r) => ({
       id:r.id, date:String(r.date).slice(0,10), meal:r.meal, item:r.item,
       amount:Number(r.amount), cat:r.category, ctx:r.context || "solo",
-      wish:r.wishlist === "yes", u:Number(r.updated) || 0,
+      wish:r.wishlist === "yes", full:Number(r.full) || 0, why:r.discount || "",
+      wishId:r.wishId || "", u:Number(r.updated) || 0,
       d:r.deleted === "yes", ts:Number(r.updated) || 0 }) },
 
   bills: { arr: () => S.bills, map: (b) => ({
@@ -1565,12 +1855,19 @@ const KINDS = {
       amount:Number(r.amount), u:Number(r.updated) || 0,
       d:r.deleted === "yes" }) },
 
+  /* `price` is what you listed it at; `paid` is what it actually cost when you bought
+     it. Both are kept — the gap is what waiting for a promotion earned you. */
   wishes: { arr: () => S.wishes, map: (w) => ({
-      id:w.id, name:w.name, price:w.price, updated:w.u || 0,
-      deleted:w.d ? "yes" : "" }),
+      id:w.id, name:w.name, price:w.price,
+      bought:w.bought ? "yes" : "", paid:w.paid || "", bought_date:w.bdate || "",
+      from_fund:w.fromPot ? "yes" : "", txId:w.txId || "",
+      updated:w.u || 0, deleted:w.d ? "yes" : "" }),
     back: (r) => ({
-      id:r.id, name:r.name, price:Number(r.price), u:Number(r.updated) || 0,
-      d:r.deleted === "yes" }) },
+      id:r.id, name:r.name, price:Number(r.price),
+      bought:r.bought === "yes", paid:Number(r.paid) || 0,
+      bdate:String(r.bought_date || "").slice(0, 10),
+      fromPot:r.from_fund === "yes", txId:r.txId || "",
+      u:Number(r.updated) || 0, d:r.deleted === "yes" }) },
 };
 
 let syncing = false, syncTimer = null;
@@ -1741,7 +2038,9 @@ $("#addCustom").onclick = () => {
     return i;
   };
   const name = mk("What was it?");
-  const price = mk("Amount (฿)", "number");
+
+  const price = pricePicker("", "", "");
+  f.append(price.node);
 
   const pick = catPicker(DEFAULT_CAT);
   f.append(pick.node);
@@ -1765,17 +2064,21 @@ $("#addCustom").onclick = () => {
   f.onsubmit = (e) => {
     e.preventDefault();
     const n = name.value.trim();
-    const p = Number(price.value);
-    if (!n || !(p > 0)) return;
+    const p = price.get();
+    if (!n || !(p.amount > 0)) return;
     const c = pick.get();
-    if (box.checked) saveFav(n, p, c);
+    /* A favourite is a tile you tap without thinking, so it holds the price you
+       normally pay. A one-off co-pay or promo must not become the tile's price. */
+    if (box.checked) saveFav(n, p.full || p.amount, c);
     dlg.close();
-    addTx(n, p, c);
+    addTx(n, p.amount, c, { full: p.full, why: p.why });
     renderTags();
   };
   dlg.showModal();
   setTimeout(() => name.focus(), 50);
 };
+
+$("#buyWish").onclick = pickWish;
 
 $("#addWish").onclick = () => ask("Add a wish", [
   { k:"name",  label:"What do you want?" },

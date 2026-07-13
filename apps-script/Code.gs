@@ -15,6 +15,16 @@
 const SECRET = "CHANGE-ME-to-a-long-random-string";
 
 /**
+ * Which copy of this file is actually deployed.
+ *
+ * Bump it whenever you change this file. Then `doGet` — just open the /exec URL in a
+ * browser — tells you which version is live, in one look. Without it there is no way
+ * to tell a successful redeploy from a failed one: the Web App answers happily either
+ * way, and a stale deployment looks exactly like a fresh one until data goes missing.
+ */
+const VERSION = "2026-07-13 paid-vs-full-price";
+
+/**
  * Each kind is one tab, with human-readable columns so you can just open it.
  *
  * Two timestamps, because they do different jobs and mixing them is a bug:
@@ -26,14 +36,20 @@ const SECRET = "CHANGE-ME-to-a-long-random-string";
  *               correctly — otherwise edits and deletes get silently skipped.
  */
 const SHEETS = {
+  // `amount` is what actually left your pocket. `full` is the sticker price, present
+  // only when you paid less than it (a government co-pay, a promotion) — the gap
+  // between the two columns is the subsidy, and it is what comes back when the
+  // campaign ends. Storing one number instead of two loses that forever.
   expenses: ["id", "date", "meal", "item", "amount", "category", "context",
-             "wishlist", "updated", "deleted", "seq"],
+             "wishlist", "full", "discount", "wishId", "updated", "deleted", "seq"],
   bills:    ["id", "name", "amount", "cadence", "varies", "active",
              "updated", "deleted", "seq"],
   // What was actually paid, one row per bill per month — because electric and phone
   // are not the same number every month, and the range is what you budget against.
   payments: ["id", "billId", "period", "amount", "updated", "deleted", "seq"],
-  wishes:   ["id", "name", "price", "updated", "deleted", "seq"],
+  // `price` = what you listed it at. `paid` = what it cost when you actually bought it.
+  wishes:   ["id", "name", "price", "bought", "paid", "bought_date", "from_fund",
+             "txId", "updated", "deleted", "seq"],
 };
 
 // Favourites and settings are single blobs, not tables of records, so they live in
@@ -80,9 +96,13 @@ function doPost(e) {
   }
 }
 
-/** A GET is just a health check, so you can confirm the URL works in a browser. */
+/**
+ * A GET is a health check: open the /exec URL in a browser and it tells you which
+ * version is live and which columns that version knows about. No secret needed — it
+ * returns no data, only the shape, and the shape is public in the repo anyway.
+ */
 function doGet() {
-  return json({ ok: true, service: "spend", sheets: Object.keys(SHEETS) });
+  return json({ ok: true, service: "spend", version: VERSION, columns: SHEETS });
 }
 
 function json(o) {
@@ -114,6 +134,36 @@ function tab(kind) {
     sh.setFrozenRows(1);
   }
   return sh;
+}
+
+/**
+ * Where each column actually lives in THIS sheet, by name.
+ *
+ * Read from the sheet's own header row, never from the position of a name in SHEETS.
+ * A sheet created by an older version of the app has fewer columns, and if a newer
+ * version added one in the middle, every index after it would shift: `seq` would be
+ * read from a blank cell, every existing row would look older than the cursor, and
+ * a new device would quietly pull nothing. Nobody would see an error.
+ *
+ * So: names that are missing are APPENDED to the header, existing columns never move,
+ * and old rows keep reading correctly.
+ */
+function headerIndex(sh, cols) {
+  const width = Math.max(sh.getLastColumn(), cols.length);
+  const have = sh.getRange(1, 1, 1, width).getValues()[0].map(function (v) {
+    return String(v).trim();
+  });
+
+  const named = have.filter(function (v) { return v; }).length;
+  const missing = cols.filter(function (c) { return have.indexOf(c) === -1; });
+  if (missing.length) {
+    sh.getRange(1, named + 1, 1, missing.length).setValues([missing]);
+    missing.forEach(function (c, i) { have[named + i] = c; });
+  }
+
+  const idx = {};
+  have.forEach(function (c, i) { if (c) idx[c] = i; });
+  return idx;
 }
 
 /** Every meta blob, keyed by name. Two rows: settings, quick. */
@@ -173,9 +223,11 @@ function upsert(kind, records, seq) {
   if (!records.length) return;
   const cols = SHEETS[kind];
   const sh = tab(kind);
+  const idx = headerIndex(sh, cols);
+  const width = Object.keys(idx).length;
   const last = sh.getLastRow();
-  const uAt = cols.indexOf("updated");
-  const sAt = cols.indexOf("seq");
+  const uAt = idx["updated"];
+  const sAt = idx["seq"];
 
   // id -> sheet row number
   const index = {};
@@ -186,22 +238,25 @@ function upsert(kind, records, seq) {
 
   const appends = [];
   records.forEach(function (r) {
-    const row = cols.map(function (c) { return r[c] === undefined ? "" : r[c]; });
+    const row = [];
+    for (let i = 0; i < width; i++) row.push("");
+    cols.forEach(function (c) {
+      if (idx[c] !== undefined && r[c] !== undefined) row[idx[c]] = r[c];
+    });
     row[sAt] = seq;                                  // server stamps the cursor
     const at = index[String(r.id)];
     if (at) {
-      const existing = sh.getRange(at, 1, 1, cols.length).getValues()[0];
+      const existing = sh.getRange(at, 1, 1, width).getValues()[0];
       const mine = Number(existing[uAt]) || 0;
       if ((Number(r.updated) || 0) < mine) return;   // stale write — drop it
-      sh.getRange(at, 1, 1, cols.length).setValues([row]);
+      sh.getRange(at, 1, 1, width).setValues([row]);
     } else {
       appends.push(row);
     }
   });
 
   if (appends.length) {
-    sh.getRange(sh.getLastRow() + 1, 1, appends.length, cols.length)
-      .setValues(appends);
+    sh.getRange(sh.getLastRow() + 1, 1, appends.length, width).setValues(appends);
   }
 }
 
@@ -209,17 +264,21 @@ function upsert(kind, records, seq) {
 function readSince(kind, since) {
   const cols = SHEETS[kind];
   const sh = tab(kind);
+  const idx = headerIndex(sh, cols);
+  const width = Object.keys(idx).length;
   const last = sh.getLastRow();
   if (last < 2) return [];
 
-  const values = sh.getRange(2, 1, last - 1, cols.length).getValues();
-  const sAt = cols.indexOf("seq");
+  const values = sh.getRange(2, 1, last - 1, width).getValues();
+  const sAt = idx["seq"];
   const out = [];
 
   values.forEach(function (v) {
     if ((Number(v[sAt]) || 0) <= since) return;
     const o = {};
-    cols.forEach(function (c, i) { o[c] = v[i]; });
+    cols.forEach(function (c) {
+      if (idx[c] !== undefined) o[c] = v[idx[c]];
+    });
     out.push(o);
   });
   return out;

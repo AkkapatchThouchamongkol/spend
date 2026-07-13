@@ -79,8 +79,14 @@ queued and goes up next time you're online.
 7. In the app: **Data** tab → paste the URL and the secret → **Save** → **Sync now**.
 8. Do the same on your other device. It will pull everything down.
 
-The Sheet grows three tabs — `expenses`, `bills`, `wishes` — with plain readable
-columns. `updated` and `seq` are bookkeeping for the sync; ignore them.
+The Sheet grows five tabs — `expenses`, `bills`, `payments`, `wishes` and `meta` —
+with plain readable columns. `updated` and `seq` are bookkeeping for the sync; ignore
+them.
+
+In `expenses`, **`amount` is what you actually paid**. `full` is the undiscounted price,
+filled only when you paid less than it, and `discount` says why (`gov` for a state
+co-pay, `promo` for a sale). Two columns rather than one, because the difference between
+them is what a subsidy is worth to you — and what comes back the month it ends.
 
 **If two devices edit the same entry, the most recent edit wins.** Deletes sync too.
 
@@ -109,3 +115,24 @@ git add . && git commit -m "Update" && git push
 ```
 
 Pages redeploys in about a minute.
+
+## Updating the Apps Script
+
+**`git push` does not touch it.** The script is a *copy* you pasted into your Sheet, so
+the Sheet keeps running whatever was deployed last. A change to `apps-script/Code.gs`
+reaches your data only when you redeploy it by hand.
+
+1. Sheet → **Extensions → Apps Script**.
+2. Select all, paste in the new `Code.gs`, and **put your `SECRET` back** — the copy in
+   the repo has the placeholder. Save.
+3. **Deploy → Manage deployments** → pencil (edit) → **Version: New version** →
+   **Deploy**.
+
+> Step 3 matters. **Do not use "New deployment"** — that mints a *different* `/exec`
+> URL, while your phone keeps calling the old one and keeps running the old code. You
+> would see nothing change and have no clue why. Editing the existing deployment keeps
+> the URL, so nothing on your phone needs touching.
+
+New columns look after themselves: the script reads the header row of each tab and
+appends any it doesn't find, leaving existing columns where they are. Nothing to edit in
+the Sheet by hand.
