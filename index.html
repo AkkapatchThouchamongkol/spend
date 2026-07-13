@@ -76,6 +76,8 @@ header{padding:20px 0 12px; display:flex; align-items:flex-end; gap:14px;}
 
 /* ---------- controls ---------- */
 .bar{display:flex; gap:6px; margin:14px 0 10px; flex-wrap:wrap;}
+/* Five type chips don't fit one phone-width row; size to content and wrap. */
+.bar.wrap .chip{flex:1 1 auto;}
 .chip{
   flex:1; min-width:0; padding:9px 6px; border:1px solid var(--line);
   background:var(--surface); color:var(--ink-2); border-radius:999px;
@@ -638,6 +640,7 @@ const CATS = [
   ["snack", "Snack"],
   ["drink", "Drink"],
   ["transport", "Transport"],
+  ["shopping", "Shopping"],
 ];
 const DEFAULT_CAT = "main";
 
@@ -645,7 +648,7 @@ const DEFAULT_CAT = "main";
 function catPicker(selected) {
   const w = el("div", "field");
   const l = el("label"); l.textContent = "Type";
-  const bar = el("div", "bar"); bar.style.margin = "0";
+  const bar = el("div", "bar wrap"); bar.style.margin = "0";
   let cur = selected || DEFAULT_CAT;
   CATS.forEach(([k, label]) => {
     const c = el("button", "chip");
