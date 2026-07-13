@@ -926,6 +926,9 @@ function editTx(t) {
   const i = el("input"); i.type = "number"; i.inputMode = "numeric"; i.value = t.amount;
   w.append(l, i); f.append(w);
 
+  const pick = catPicker(t.cat);
+  f.append(pick.node);
+
   const wr = el("div", "field");
   const wl = el("label"); wl.textContent = "Mark as";
   const star = el("button", "chip");
@@ -954,6 +957,7 @@ function editTx(t) {
   f.onsubmit = (e) => {
     e.preventDefault();
     t.amount = Number(i.value) || t.amount;
+    t.cat = pick.get();
     t.wish = wish;
     touch(t);
     save(); dlg.close(); render(); queueSync();
