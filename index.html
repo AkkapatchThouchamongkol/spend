@@ -308,6 +308,12 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
 
   <!-- ===================== LOG ===================== -->
   <section class="panel on" id="p-log">
+    <div class="banner" id="backfillBar"
+         style="display:none; align-items:center; gap:10px;">
+      <span id="backfillLbl" style="flex:1;"></span>
+      <button class="btn" id="toToday" type="button"
+              style="flex:none; padding:7px 12px;">↩ Today</button>
+    </div>
     <div class="bar" id="mealBar"></div>
     <div class="bar" id="ctxBar"></div>
     <div class="sub" id="ctxHint"></div>
@@ -324,7 +330,7 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
     </button>
     <p class="sub" id="favHint" style="text-align:center; margin-top:8px;"></p>
 
-    <h2>Today</h2>
+    <h2 id="receiptHead">Today</h2>
     <div class="receipt" id="receipt"></div>
   </section>
 
@@ -375,7 +381,7 @@ dialog h3{margin:0 0 14px; font-size:1.05rem;}
 
   <!-- ===================== BILLS ===================== -->
   <section class="panel" id="p-bills">
-    <h2>This month</h2>
+    <h2 id="billsHead">This month</h2>
     <p class="hint">Rent doesn't move. Electric and phone do — a hot month, an
       international call. Tap a bill to record what you <em>actually</em> paid, so
       the history knows the real range instead of one guessed number.</p>
@@ -629,6 +635,24 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}
 const TODAY = () => iso(new Date());
 const uid = () => Date.now() + Math.random();
 
+/* Backfill: a past day picked on the Days tab, so a forgotten expense can be added
+   where it belongs. null = logging to today, read fresh on every tap — an app left
+   open across midnight must not keep logging to yesterday. Deliberately never
+   persisted: a fresh open always starts on today, and the visibilitychange handler
+   drops a backfill the moment the calendar has rolled past the day it was set. */
+let backfill = null;                       // "YYYY-MM-DD", or null for today
+let backfillSetOn = null;                  // what TODAY() was when it was set
+const logDate = () => backfill || TODAY();
+const dayName = (k, monthFmt) =>
+  new Date(k + "T00:00").toLocaleDateString(undefined,
+    { weekday:"long", day:"numeric", month: monthFmt || "long" });
+
+function setBackfill(key) {
+  backfill = key === TODAY() ? null : key;
+  backfillSetOn = TODAY();
+  render();
+}
+
 const MEALS = ["morning","noon","evening"];
 const CTX = [
   { k:"solo",    l:"Alone" },
@@ -842,8 +866,9 @@ function ask(title, fields, onOk) {
    less than it. Tapping a favourite passes neither — the one-tap path stays one tap. */
 function addTx(name, amount, cat, x) {
   if (!name || !(amount > 0)) return null;
+  const day = logDate();
   const t = touch({
-    id: uid(), date: TODAY(), ts: Date.now(), meal,
+    id: uid(), date: day, ts: Date.now(), meal,
     item: name, amount, cat: cat || DEFAULT_CAT, ctx: S.ui.ctx,
     full: (x && x.full) || 0,
     why: (x && x.why) || "",
@@ -856,7 +881,10 @@ function addTx(name, amount, cat, x) {
   render();
   queueSync();
   if (navigator.vibrate) navigator.vibrate(12);
-  toast(`${name} · ${baht(amount)}`);
+  toast(`${name} · ${baht(amount)}` + (day !== TODAY()
+    ? ` → ${new Date(day + "T00:00").toLocaleDateString(undefined,
+        { day:"numeric", month:"short" })}`
+    : ""));
   return t;
 }
 
@@ -1004,13 +1032,16 @@ function saveFav(name, price, cat) {
 }
 
 function renderReceipt() {
-  const today = live(S.tx).filter((t) => t.date === TODAY())
+  const day = logDate();
+  const today = live(S.tx).filter((t) => t.date === day)
                           .sort((a, b) => a.ts - b.ts);
   const r = $("#receipt"); r.innerHTML = "";
 
   if (!today.length) {
     const e = el("div", "empty");
-    e.textContent = "Nothing yet. Tap a tile above.";
+    e.textContent = backfill
+      ? "Nothing logged on this day. Tap a tile to fill it in."
+      : "Nothing yet. Tap a tile above.";
     r.append(e);
   }
 
@@ -1039,9 +1070,16 @@ function renderReceipt() {
   const days = new Set(mtx.map((t) => t.date)).size;
   $("#mtdDays").textContent = `${days} day${days === 1 ? "" : "s"} logged`;
 
-  const d = new Date();
-  $("#dateLbl").textContent = d.toLocaleDateString(undefined,
-    { weekday:"long", day:"numeric", month:"long" });
+  /* In backfill the whole header flips to the selected day and goes amber — the
+     danger of this feature is logging to the wrong day without noticing, so the
+     mode has to be impossible to miss. */
+  $("#dateLbl").textContent = dayName(day);
+  $("#dateLbl").style.color = backfill ? "var(--warn)" : "";
+  $("#receiptHead").textContent = backfill ? dayName(day, "short") : "Today";
+  const bar = $("#backfillBar");
+  bar.style.display = backfill ? "flex" : "none";
+  if (backfill)
+    $("#backfillLbl").innerHTML = `Adding to <b>${dayName(day, "short")}</b> — not today.`;
 }
 
 function editTx(t) {
@@ -1177,7 +1215,9 @@ function showDay(key) {
   if (!rows.length) {
     const p = el("p", "hint");
     p.style.margin = "0";
-    p.textContent = "Never logged. A hole in the data, not a zero-spend day.";
+    p.textContent = key > TODAY()
+      ? "Hasn't happened yet — nothing to log."
+      : "Never logged. A hole in the data, not a zero-spend day.";
     card.append(p);
   } else {
     rows.forEach((t) => {
@@ -1196,6 +1236,17 @@ function showDay(key) {
     const a = el("span", "amt num");
     a.textContent = baht(rows.reduce((s, t) => s + t.amount, 0));
     tr.append(l, a); card.append(tr);
+  }
+
+  /* Forgot a day (or one item)? Log it where it belongs. Future days get no
+     button — nothing can have been spent on a day that hasn't happened. */
+  if (key <= TODAY()) {
+    const add = el("button", "btn ghost");
+    add.type = "button";
+    add.style.cssText = "width:100%; margin-top:10px; border-style:dashed;";
+    add.textContent = key === TODAY() ? "+ Add to today" : "+ Add to this day";
+    add.onclick = () => { setBackfill(key); go("log"); };
+    card.append(add);
   }
   box.append(card);
   box.scrollIntoView({ behavior:"smooth", block:"nearest" });
@@ -1418,7 +1469,7 @@ function buyWish(w) {
 
     w.bought = true;
     w.paid = p.amount;
-    w.bdate = TODAY();
+    w.bdate = logDate();   // a buy logged onto a past day was bought that day
     w.txId = t ? t.id : "";
     w.fromPot = cb.checked;
     touch(w);
@@ -1437,10 +1488,22 @@ function buyWish(w) {
 }
 
 /* ----------------------------------------------------------------- BILLS  */
-const PERIOD = (d) => (d || new Date()).toISOString().slice(0, 7);   // "2026-07"
+/* Local time, NOT toISOString() — that's UTC, and in Thailand (UTC+7) it says
+   last month for the first seven hours of every 1st, which would stamp a bill
+   payment recorded after midnight into the wrong period. */
+const PERIOD = (d) => iso(d || new Date()).slice(0, 7);              // "2026-07"
 const periodName = (p) =>
   new Date(p + "-01T00:00").toLocaleDateString(undefined,
     { month: "long", year: "numeric" });
+const shiftPeriod = (p, n) => {
+  const [y, m] = p.split("-").map(Number);
+  return PERIOD(new Date(y, m - 1 + n, 1));
+};
+
+/* Which month the Bills tab is looking at. null = the current month, read fresh
+   so the view rolls over with the calendar. Not persisted, same as backfill. */
+let billView = null;
+const billPeriod = () => billView || PERIOD();
 
 /* What you actually paid for this bill in this month, or undefined. */
 const actualFor = (billId, period) =>
@@ -1601,13 +1664,35 @@ function renderBills() {
     return;
   }
 
-  /* ---- this month: actuals where recorded, estimates where not ---- */
-  const period = PERIOD();
+  /* ---- one month: actuals where recorded, estimates where not. Opens on the
+     current month; ‹ › steps back through history, e.g. to record July's electric
+     bill when it's paid in early August. ---- */
+  const period = billPeriod();
+  const isNow = period === PERIOD();
+  $("#billsHead").textContent = isNow ? "This month" : "Past months";
+
   const tm = $("#thisMonth"); tm.innerHTML = "";
   const card = el("div", "card");
   const h = el("h2");
-  h.style.margin = "0 0 2px"; h.style.fontSize = "1rem";
-  h.textContent = periodName(period);
+  h.style.cssText =
+    "margin:0 0 6px; font-size:1rem; display:flex; align-items:center; gap:8px;";
+  const pv = el("button", "btn ghost");
+  pv.type = "button"; pv.textContent = "‹"; pv.style.padding = "3px 10px";
+  pv.onclick = () => { billView = shiftPeriod(period, -1); renderBills(); };
+  const lbl = el("span");
+  lbl.style.cssText = "flex:1; text-align:center;";
+  lbl.textContent = periodName(period);
+  if (!isNow) lbl.style.color = "var(--warn)";
+  const nx = el("button", "btn ghost");
+  nx.type = "button"; nx.textContent = "›"; nx.style.padding = "3px 10px";
+  /* No future months: a bill can't have been paid in a month that hasn't come. */
+  if (isNow) nx.style.visibility = "hidden";
+  nx.onclick = () => {
+    const n = shiftPeriod(period, 1);
+    billView = n === PERIOD() ? null : n;
+    renderBills();
+  };
+  h.append(pv, lbl, nx);
   const hint = el("p", "hint");
   hint.style.margin = "0 0 8px";
   card.append(h, hint);
@@ -1641,13 +1726,22 @@ function renderBills() {
 
   hint.textContent = pending
     ? `${pending} bill${pending === 1 ? "" : "s"} still estimated — tap to enter what you paid.`
-    : "All bills recorded for this month.";
+    : `All bills recorded for ${isNow ? "this month" : periodName(period)}.`;
 
   const tr = el("div", "tot-row");
   const l = el("span");
   l.textContent = pending ? "Total (part estimate)" : "Total";
   const a = el("span", "amt num"); a.textContent = baht(known + estimated);
   tr.append(l, a); card.append(tr);
+
+  if (!isNow) {
+    const back = el("button", "btn ghost");
+    back.type = "button";
+    back.style.cssText = "width:100%; margin-top:10px;";
+    back.textContent = "↩ This month";
+    back.onclick = () => { billView = null; renderBills(); };
+    card.append(back);
+  }
   tm.append(card);
 
   /* ---- the templates ---- */
@@ -2018,6 +2112,7 @@ function render() {
   renderReceipt();
   if ($("#p-days").classList.contains("on")) renderCal();
   if ($("#p-wish").classList.contains("on")) renderWish();
+  if ($("#p-bills").classList.contains("on")) renderBills();
 }
 
 /* wiring */
@@ -2079,6 +2174,7 @@ $("#addCustom").onclick = () => {
 };
 
 $("#buyWish").onclick = pickWish;
+$("#toToday").onclick = () => setBackfill(TODAY());
 
 $("#addWish").onclick = () => ask("Add a wish", [
   { k:"name",  label:"What do you want?" },
@@ -2224,7 +2320,16 @@ requestDurableStorage();
 /* Catch up on open, and whenever you come back to the app. */
 if (S.sync.url) syncNow(true);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) queueSync();
+  if (document.hidden) return;
+  /* Switching apps mid-backfill keeps the selected day. But once the calendar has
+     rolled past the day the mode was set, it's stale — snap back, so the morning's
+     first tap can't silently land on yesterday. */
+  if (backfill && TODAY() !== backfillSetOn) {
+    backfill = null;
+    toast("Back to today");
+  }
+  render();
+  queueSync();
 });
 
 /* Service worker: caches the app so it opens instantly and works with no signal —
