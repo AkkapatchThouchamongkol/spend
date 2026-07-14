@@ -101,7 +101,10 @@ them is what a subsidy is worth to you — and what comes back the month it ends
 
 Your data lives in one browser on one device. Clearing browser data erases it.
 
-- **Data → Full backup (JSON)** — do this occasionally. It restores everything.
+- **Data → Full backup (JSON)** — do this occasionally. It restores everything
+  *except* the sync URL and secret: the file tends to travel (email, cloud
+  drives), and those two are full read/write keys to your Sheet. Enter them by
+  hand on each device, once (step 7 above).
 - **Data → Spending CSV** — feeds the analysis: drop it in `data/expenses.csv` and
   run `python analyze.py`.
 
