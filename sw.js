@@ -7,7 +7,7 @@
  * falling back to cache when there is no signal. Your data never touches this —
  * it lives in localStorage and is never fetched.
  */
-const CACHE = "spend-v12";
+const CACHE = "spend-v13";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest",
                "./icon-192.png", "./icon-512.png"];
 
@@ -29,8 +29,12 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        /* Only a good same-origin response may replace the cached shell — a
+           cached 404/500 would become "the app" until the next deploy. */
+        if (res.ok && new URL(e.request.url).origin === self.location.origin) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
         return res;
       })
       .catch(() => caches.match(e.request).then((r) => r || caches.match("./index.html")))

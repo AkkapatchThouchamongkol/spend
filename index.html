@@ -3,6 +3,14 @@
      turns to mojibake. It only looks fine today because GitHub Pages sends the header
      for us — the file should not depend on where it is served from. -->
 <meta charset="utf-8">
+<!-- Exfiltration seatbelt, not an XSS blocker: the app is one inline script, so
+     script-src must allow 'unsafe-inline'. What this buys: a compromised page can
+     talk only to this origin and the two Google Apps Script hosts (script.google.com
+     answers with a redirect to script.googleusercontent.com — both are needed or
+     sync breaks), and can't load outside scripts, plugins, or a <base> hijack.
+     GitHub Pages can't send headers, so a meta tag is the only place for this.
+     No form-action here: it would break the <form method="dialog"> dialogs. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com; object-src 'none'; base-uri 'none'">
 <title>Spend — expense tracker</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#D8471F">
@@ -120,6 +128,7 @@ header{padding:20px 0 12px; display:flex; align-items:flex-end; gap:14px;}
 }
 .d-main{background:var(--accent);} .d-snack{background:var(--warn);}
 .d-drink{background:var(--good);} .d-transport{background:var(--ink-3);}
+.d-shopping{background:#8a63d2;}
 
 /* ---------- receipt ---------- */
 .receipt{
@@ -929,8 +938,11 @@ function renderTags() {
   S.quick.forEach((q) => {
     const b = el("button", "tag");
     b.type = "button";
+    /* q.c arrives from synced meta blobs and restored backups — only a known
+       category key may reach the markup. */
+    const cat = CATS.some(([k]) => k === q.c) ? q.c : DEFAULT_CAT;
     b.innerHTML =
-      `<span class="dot d-${q.c}"></span>` +
+      `<span class="dot d-${cat}"></span>` +
       `<span class="nm"></span><span class="pr num">฿${nf(q.p)}</span>`;
     b.querySelector(".nm").textContent = q.n;
     b.onclick = () => { if (!b._held) addTx(q.n, q.p, q.c); b._held = false; };
@@ -1133,7 +1145,9 @@ function editTx(t) {
 }
 
 /* ------------------------------------------------------------------ DAYS  */
-let calM = new Date();
+/* Anchored to the 1st: setMonth() from the 29th–31st lands on a day the target
+   month doesn't have and rolls straight back (Jul 31 → "Jun 31" → Jul 1). */
+let calM = new Date(); calM.setDate(1);
 
 function renderCal() {
   const y = calM.getFullYear(), m = calM.getMonth();
@@ -2225,8 +2239,12 @@ $("#nextM").onclick = () => { calM.setMonth(calM.getMonth() + 1); renderCal(); }
 $("#expCsv").onclick = exportCsv;
 $("#expBills").onclick = exportBills;
 $("#expJson").onclick = () => {
+  /* The backup leaves S.sync out on purpose: the file tends to travel (email,
+     cloud drives), and the sync URL + secret are full read/write keys to the
+     Sheet. They stay on the device, entered once per device by hand. */
   download("spend-backup-" + TODAY() + ".json",
-    JSON.stringify(S, null, 2), "application/json");
+    JSON.stringify(Object.assign({}, S, { sync: undefined }), null, 2),
+    "application/json");
   toast("Backup saved");
 };
 $("#impJson").onchange = (e) => {
@@ -2242,7 +2260,13 @@ $("#impJson").onchange = (e) => {
       S = Object.assign({}, DEFAULT, d);
       S.settings = Object.assign({}, DEFAULT.settings, d.settings || {});
       S.ui = Object.assign({}, DEFAULT.ui, d.ui || {});
-      S.sync = Object.assign({}, keepSync, d.sync || {});
+      /* Old backups carried sync credentials. Never let a file replace the ones
+         this device already uses — a doctored backup could silently point the
+         app at someone else's server. A fresh install (no URL yet) may still
+         adopt them from an old backup. */
+      S.sync = (keepSync && keepSync.url)
+        ? keepSync
+        : Object.assign({}, DEFAULT.sync, keepSync, d.sync || {});
       /* A backup without favourites (my-data.json, or one made before this
          feature) must not silently wipe the ones you've built up. */
       S.quick = (d.quick && d.quick.length) ? d.quick : keepQuick;
