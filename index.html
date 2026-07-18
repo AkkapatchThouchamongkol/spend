@@ -129,6 +129,7 @@ header{padding:20px 0 12px; display:flex; align-items:flex-end; gap:14px;}
 .d-main{background:var(--accent);} .d-snack{background:var(--warn);}
 .d-drink{background:var(--good);} .d-transport{background:var(--ink-3);}
 .d-shopping{background:#8a63d2;}
+.d-grocery{background:#2e9598;}
 
 /* ---------- receipt ---------- */
 .receipt{
@@ -549,8 +550,8 @@ async function storageReport() {
  * Rent and Netflix are the same every month. Electric and telecom are not: there's a
  * base, plus whatever you actually used (a hot month, an international call). Storing
  * one figure and editing it each month would work but would erase the history — and
- * the history is the whole point. Knowing your electric runs 700-1,400 is what lets
- * you budget for it; knowing only "940" does not.
+ * the history is the whole point. Knowing the range your electric actually moves in
+ * is what lets you budget for it; knowing one number does not.
  *
  * So: `bills` holds the template (typical amount, whether it varies), and `pays` is a
  * ledger of what you ACTUALLY paid, one row per bill per month. The month's total
@@ -685,6 +686,7 @@ const CATS = [
   ["snack", "Snack"],
   ["drink", "Drink"],
   ["transport", "Transport"],
+  ["grocery", "Grocery"],
   ["shopping", "Shopping"],
 ];
 const DEFAULT_CAT = "main";
@@ -920,7 +922,7 @@ function renderBars() {
 
   $("#ctxHint").textContent = S.ui.ctx === "solo"
     ? "Who you're with is the one thing the old log never captured."
-    : `Tagging as “${CTX.find((c) => c.k === S.ui.ctx).l}” — this is the ฿3,000/month we couldn't see before.`;
+    : `Tagging as “${CTX.find((c) => c.k === S.ui.ctx).l}” — spending with company is the part a solo log never explains.`;
 }
 
 function renderTags() {
@@ -1267,8 +1269,7 @@ function showDay(key) {
 }
 
 /* -------------------------------------------------------------- WISHLIST  */
-/* Treats = snacks + drinks. This is the lever the analysis found: ~1,400/month,
-   the cheapest saving available in lifestyle terms. */
+/* Treats = snacks + drinks — the discretionary slice the wishlist nudge works on. */
 function treatsPerMonth() {
   const tx = live(S.tx);
   const byDay = {};
