@@ -691,16 +691,19 @@ const CATS = [
 ];
 const DEFAULT_CAT = "main";
 
-/* A row of category chips. Returns () => the selected key. */
-function catPicker(selected) {
+/* A labelled row of single-choice chips — the shape every picker in the sheet
+   uses. `opts` is [[key, label], ...]. `wrap` sizes the chips to their content and
+   lets the row run onto a second line, for when they don't fit a phone width.
+   Returns () => the selected key. */
+function chipPicker(label, opts, selected, wrap) {
   const w = el("div", "field");
-  const l = el("label"); l.textContent = "Type";
-  const bar = el("div", "bar wrap"); bar.style.margin = "0";
-  let cur = selected || DEFAULT_CAT;
-  CATS.forEach(([k, label]) => {
+  const l = el("label"); l.textContent = label;
+  const bar = el("div", "bar" + (wrap ? " wrap" : "")); bar.style.margin = "0";
+  let cur = selected;
+  opts.forEach(([k, text]) => {
     const c = el("button", "chip");
     c.type = "button";
-    c.textContent = label;
+    c.textContent = text;
     c.setAttribute("aria-pressed", k === cur);
     c.onclick = () => {
       cur = k;
@@ -712,6 +715,10 @@ function catPicker(selected) {
   w.append(l, bar);
   return { node: w, get: () => cur };
 }
+
+/* Six category chips don't fit one phone row, so this picker wraps. */
+const catPicker = (selected) =>
+  chipPicker("Type", CATS, selected || DEFAULT_CAT, true);
 
 /* Why you paid less than the sticker price. `gov` and `promo` are NOT the same fact
    and must not be merged: a promotion is a one-off you were lucky to catch, but the
@@ -756,23 +763,8 @@ function pricePicker(paid, full, why) {
                    "co-pay, or a promotion. Leave it blank otherwise.";
   fw.append(fl, fi, fh);
 
-  const ww = el("div", "field");
-  const wl = el("label"); wl.textContent = "Why was it cheaper?";
-  const bar = el("div", "bar wrap"); bar.style.margin = "0";
-  let cur = why || "";
-  WHYS.forEach(([k, label]) => {
-    const c = el("button", "chip");
-    c.type = "button";
-    c.textContent = label;
-    c.setAttribute("aria-pressed", k === cur);
-    c.onclick = () => {
-      cur = k;
-      bar.querySelectorAll(".chip").forEach((x) =>
-        x.setAttribute("aria-pressed", x === c));
-    };
-    bar.append(c);
-  });
-  ww.append(wl, bar);
+  const whyPick = chipPicker("Why was it cheaper?", WHYS, why || "", true);
+  const ww = whyPick.node;
 
   /* There is no reason to give until there is a discount to explain, so keep it out
      of the way until then — the common case must stay a two-field form. */
@@ -790,7 +782,7 @@ function pricePicker(paid, full, why) {
       /* A "full price" at or below what you paid is not a discount. Drop it rather
          than keep a number that would quietly overstate what you saved. */
       if (!(f > amount)) f = 0;
-      return { amount, full: f, why: f ? (cur || "other") : "" };
+      return { amount, full: f, why: f ? (whyPick.get() || "other") : "" };
     },
   };
 }
@@ -1107,6 +1099,19 @@ function editTx(t) {
   const pick = catPicker(t.cat);
   f.append(pick.node);
 
+  /* Time and occasion are set on the Log screen before you tap, which means they
+     are the two tags easiest to get wrong — you notice only after the items are
+     logged. Fixing them here beats the old workaround of deleting the rows and
+     entering them again. */
+  const mealPick = chipPicker("Time",
+    MEALS.map((m) => [m, m[0].toUpperCase() + m.slice(1)]),
+    t.meal || autoMeal());
+  f.append(mealPick.node);
+
+  const ctxPick = chipPicker("Who with",
+    CTX.map((c) => [c.k, c.l]), t.ctx || "solo");
+  f.append(ctxPick.node);
+
   const wr = el("div", "field");
   const wl = el("label"); wl.textContent = "Mark as";
   const star = el("button", "chip");
@@ -1139,6 +1144,8 @@ function editTx(t) {
     t.full = p.full;
     t.why = p.why;
     t.cat = pick.get();
+    t.meal = mealPick.get();
+    t.ctx = ctxPick.get();
     t.wish = wish;
     touch(t);
     save(); dlg.close(); render(); queueSync();
@@ -1150,6 +1157,10 @@ function editTx(t) {
 /* Anchored to the 1st: setMonth() from the 29th–31st lands on a day the target
    month doesn't have and rolls straight back (Jul 31 → "Jun 31" → Jul 1). */
 let calM = new Date(); calM.setDate(1);
+/* The day panel below the calendar is where a past day gets corrected, so it has to
+   re-render when the data changes — edit a row's tags from there and the panel used
+   to keep showing the old ones, which looks exactly like the save not working. */
+let dayOpen = null;
 
 function renderCal() {
   const y = calM.getFullYear(), m = calM.getMonth();
@@ -1218,7 +1229,8 @@ function renderCal() {
   $("#sStreak").textContent = streak;
 }
 
-function showDay(key) {
+function showDay(key, keepScroll) {
+  dayOpen = key;
   const rows = live(S.tx).filter((t) => t.date === key).sort((a, b) => a.ts - b.ts);
   const box = $("#dayDetail"); box.innerHTML = "";
   const card = el("div", "card");
@@ -1265,7 +1277,8 @@ function showDay(key) {
     card.append(add);
   }
   box.append(card);
-  box.scrollIntoView({ behavior:"smooth", block:"nearest" });
+  /* Only scroll when you actually tapped a day — not on every background re-render. */
+  if (!keepScroll) box.scrollIntoView({ behavior:"smooth", block:"nearest" });
 }
 
 /* -------------------------------------------------------------- WISHLIST  */
@@ -2125,7 +2138,10 @@ function render() {
   renderBars();
   renderTags();
   renderReceipt();
-  if ($("#p-days").classList.contains("on")) renderCal();
+  if ($("#p-days").classList.contains("on")) {
+    renderCal();
+    if (dayOpen) showDay(dayOpen, true);
+  }
   if ($("#p-wish").classList.contains("on")) renderWish();
   if ($("#p-bills").classList.contains("on")) renderBills();
 }
